@@ -8,6 +8,7 @@
 import type { DocParserResult } from '../../shared/doc-parser-types';
 import { parseMarkdownTable, type ParsedTable } from './markdown-table-parser';
 import { getLevel1Map } from './section-locator';
+import { debugLog } from '../utils/debug-log';
 
 /** 带上下文的表格：包含所在页码和前后文本 */
 export interface ContextTable {
@@ -272,14 +273,14 @@ function findSourceCategory(
   const targetInRight = !currentInRight;
 
   if (!cachedDocResult) {
-    console.error('[findSourceCategory] cachedDocResult 未初始化');
+    debugLog('[findSourceCategory] cachedDocResult 未初始化');
     return null;
   }
 
   // 找到目标物理页
   const targetPage = cachedDocResult.pages.find(p => p.page_num === targetPageNum);
   if (!targetPage) {
-    console.error(
+    debugLog(
       `[findSourceCategory] 溯源失败! 续表 #${currentIdx} page=${current.pageNum} lp=${current.logicalPage} ` +
       `目标物理页 ${targetPageNum} 不存在`
     );
@@ -313,7 +314,7 @@ function findSourceCategory(
   }
 
   // 没找到，报错
-  console.error(
+  debugLog(
     `[findSourceCategory] 溯源失败! 续表 #${currentIdx} page=${current.pageNum} lp=${current.logicalPage} ` +
     `在${currentInRight ? '右栏' : '左栏'}，目标: page=${targetPageNum} ${targetInRight ? '右栏' : '左栏'}，未找到"账户N"文本`
   );
@@ -400,4 +401,3 @@ export function groupAccountTables(
 
   return groups;
 }
-

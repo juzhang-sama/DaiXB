@@ -3,8 +3,10 @@ import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
 import type { DocParserResult } from '../shared/doc-parser-types';
+import { debugLog, logError } from './logger';
 
 const CACHE_DIR_NAME = 'doc-parser-cache';
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** 获取缓存目录路径，不存在则创建 */
 async function ensureCacheDir(): Promise<string> {
@@ -32,8 +34,14 @@ async function getCachePath(fileBase64: string): Promise<string> {
 export async function readCache(fileBase64: string): Promise<DocParserResult | null> {
   try {
     const filePath = await getCachePath(fileBase64);
+    const stat = await fs.stat(filePath);
+    if (Date.now() - stat.mtimeMs > CACHE_TTL_MS) {
+      await fs.rm(filePath, { force: true });
+      debugLog('[DocParserCache] expired cache removed');
+      return null;
+    }
     const data = await fs.readFile(filePath, 'utf-8');
-    console.log('[DocParserCache] cache hit:', filePath);
+    debugLog('[DocParserCache] cache hit');
     return JSON.parse(data) as DocParserResult;
   } catch {
     return null;
@@ -49,9 +57,37 @@ export async function writeCache(
   try {
     const filePath = await getCachePath(fileBase64);
     await fs.writeFile(filePath, JSON.stringify(result), 'utf-8');
-    console.log('[DocParserCache] cached:', filePath);
+    debugLog('[DocParserCache] cached');
   } catch (err) {
-    console.error('[DocParserCache] write failed:', err);
+    logError('[DocParserCache] write failed:', err);
   }
 }
 
+/** 删除所有 OCR 文档解析缓存 */
+export async function clearCache(): Promise<number> {
+  const cacheDir = await ensureCacheDir();
+  const files = await fs.readdir(cacheDir).catch(() => []);
+  let removed = 0;
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    await fs.rm(path.join(cacheDir, file), { force: true });
+    removed++;
+  }
+  return removed;
+}
+
+/** 获取缓存统计信息 */
+export async function getCacheStats(): Promise<{ count: number; bytes: number }> {
+  const cacheDir = await ensureCacheDir();
+  const files = await fs.readdir(cacheDir).catch(() => []);
+  let count = 0;
+  let bytes = 0;
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const stat = await fs.stat(path.join(cacheDir, file)).catch(() => null);
+    if (!stat) continue;
+    count++;
+    bytes += stat.size;
+  }
+  return { count, bytes };
+}

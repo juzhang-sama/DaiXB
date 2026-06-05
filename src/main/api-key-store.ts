@@ -4,7 +4,7 @@
  * 首次启动时文件不存在，由用户通过 SetupModal 输入后写入
  */
 
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import { promises as fs } from 'fs';
 import path from 'path';
 
@@ -17,6 +17,10 @@ export interface ApiKeyConfig {
   deepseekApiKey?: string;
 }
 
+type StoredSecret = string | { encrypted: true; value: string };
+
+type StoredApiKeyConfig = Partial<Record<keyof ApiKeyConfig, StoredSecret>>;
+
 /** 获取配置文件完整路径 */
 function getConfigPath(): string {
   return path.join(app.getPath('userData'), CONFIG_FILE);
@@ -26,7 +30,7 @@ function getConfigPath(): string {
 export async function getApiKeys(): Promise<ApiKeyConfig> {
   try {
     const data = await fs.readFile(getConfigPath(), 'utf-8');
-    return JSON.parse(data) as ApiKeyConfig;
+    return decryptConfig(JSON.parse(data) as StoredApiKeyConfig);
   } catch {
     return {};
   }
@@ -36,7 +40,7 @@ export async function getApiKeys(): Promise<ApiKeyConfig> {
 export async function setApiKeys(keys: Record<string, string>): Promise<void> {
   const existing = await getApiKeys();
   const merged = { ...existing, ...keys };
-  await fs.writeFile(getConfigPath(), JSON.stringify(merged, null, 2), 'utf-8');
+  await fs.writeFile(getConfigPath(), JSON.stringify(encryptConfig(merged), null, 2), 'utf-8');
 }
 
 /** 检查必要的 API Key 是否都已配置 */
@@ -47,3 +51,37 @@ export async function hasApiKeys(): Promise<boolean> {
   );
 }
 
+function encryptConfig(config: ApiKeyConfig): StoredApiKeyConfig {
+  return {
+    textinAppId: encryptValue(config.textinAppId),
+    textinSecretCode: encryptValue(config.textinSecretCode),
+    deepseekApiKey: encryptValue(config.deepseekApiKey),
+  };
+}
+
+function decryptConfig(config: StoredApiKeyConfig): ApiKeyConfig {
+  return {
+    textinAppId: decryptValue(config.textinAppId),
+    textinSecretCode: decryptValue(config.textinSecretCode),
+    deepseekApiKey: decryptValue(config.deepseekApiKey),
+  };
+}
+
+function encryptValue(value: string | undefined): StoredSecret | undefined {
+  if (!value) return value;
+  if (!safeStorage.isEncryptionAvailable()) return value;
+  return {
+    encrypted: true,
+    value: safeStorage.encryptString(value).toString('base64'),
+  };
+}
+
+function decryptValue(value: StoredSecret | undefined): string | undefined {
+  if (!value) return value;
+  if (typeof value === 'string') return value;
+  try {
+    return safeStorage.decryptString(Buffer.from(value.value, 'base64'));
+  } catch {
+    return '';
+  }
+}

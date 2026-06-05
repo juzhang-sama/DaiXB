@@ -154,15 +154,30 @@ UI 展示          Excel 导出
 
 ```bash
 # 开发模式
-npm run dev          # 同时启动 Vite + Electron
+npm run dev          # 统一启动 Vite + Electron，默认端口 5175
 
 # 生产构建
 npm run build        # 构建 renderer + main
 npm run pack         # 打包为 Windows 安装程序 (NSIS)
 ```
 
+## 开发启动配置
+
+- 默认开发地址：`http://localhost:5175`
+- 可通过环境变量覆盖：
+  - `DEV_SERVER_PORT` / `VITE_DEV_SERVER_PORT`
+  - `DEV_SERVER_HOST`
+  - `ELECTRON_RENDERER_URL`
+- Electron 主进程不再直接写死端口，优先读取 `ELECTRON_RENDERER_URL`。
+
+## 安全与本地数据
+
+- API Key 存储在 Electron `userData` 下，并优先使用 `safeStorage` 加密。
+- OCR 文档解析缓存按文件内容 hash 存储，默认 30 天过期。
+- 设置弹窗提供 OCR 缓存统计和清理入口。
+- OCR 调试日志默认关闭，需显式设置 `DEBUG_LOGS=true` 或 `VITE_DEBUG_LOGS=true`。
+
 输出目录：
 - `dist/renderer/` — 前端静态资源
 - `dist/main/` — 主进程编译产物
 - `release2/` — 安装包 (.exe)
-

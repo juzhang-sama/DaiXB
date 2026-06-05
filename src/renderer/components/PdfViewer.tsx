@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import * as pdfjsLib from 'pdfjs-dist';
 import { isImageFile, UPLOAD_ACCEPT } from '../config/ocr-config';
+import { logError } from '../utils/debug-log';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -56,7 +57,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         setScale(newScale);
       }
     } catch (err) {
-      console.error('fitToWidth error:', err);
+      logError('fitToWidth error:', err);
     }
   }, [pdfDoc, currentPage]);
 
@@ -89,7 +90,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         setTotalPages(doc.numPages);
         onPageChange(1);
       } catch (err) {
-        console.error('Error loading PDF:', err);
+        logError('Error loading PDF:', err);
       }
     };
 
@@ -134,6 +135,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         const renderContext = {
           canvasContext: context,
           viewport: viewport,
+          canvas,
         };
 
         const task = page.render(renderContext);
@@ -143,7 +145,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         if (err.name === 'RenderingCancelledException') {
           return;
         }
-        console.error('Error rendering page:', err);
+        logError('Error rendering page:', err);
       } finally {
         setPageRendering(false);
       }
@@ -222,7 +224,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         <div className="shadow-lg min-h-[500px] flex items-center justify-center bg-white relative">
           {pageRendering && (
              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-               <Spin tip="正在渲染..." size="large" />
+               <Spin description="正在渲染..." size="large" />
              </div>
           )}
           {imageUrl ? (
@@ -242,4 +244,3 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
 };
 
 export default PdfViewer;
-

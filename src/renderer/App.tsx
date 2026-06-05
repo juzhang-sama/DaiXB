@@ -7,11 +7,12 @@ import ProductDrawer from './components/ProductDrawer';
 import SetupModal from './components/SetupModal';
 import { CreditReport, createEmptyCreditReport } from './types/credit-report';
 import { analyzeCreditReport } from './services/ocr-service';
-import { exportCreditReportToExcel } from './services/excel-export';
+import { logError } from './utils/debug-log';
 
 const { Header, Content } = Layout;
 
 const App: React.FC = () => {
+  const electronAvailable = typeof window.electron !== 'undefined';
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [report, setReport] = useState<CreditReport>(createEmptyCreditReport());
@@ -20,8 +21,10 @@ const App: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [keysReady, setKeysReady] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
+    if (!electronAvailable) return;
     window.electron.hasApiKeys().then((has) => {
       if (!has) {
         setSetupOpen(true);
@@ -29,21 +32,36 @@ const App: React.FC = () => {
         setKeysReady(true);
       }
     });
-  }, []);
+  }, [electronAvailable]);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     if (!report.header.reportNo) {
       message.warning('暂无数据可导出');
       return;
     }
+    if (exporting) return;
+
     const fileName = `${report.header.name || '未命名'}_征信报告_${report.header.reportNo || '未知编号'}.xlsx`;
-    exportCreditReportToExcel(report, fileName);
-    message.success('导出成功');
-  }, [report]);
+    setExporting(true);
+    try {
+      const { exportCreditReportToExcel } = await import('./services/excel-export');
+      exportCreditReportToExcel(report, fileName);
+      message.success('导出成功');
+    } catch (err) {
+      logError('[exportCreditReportToExcel] error:', err);
+      message.error('导出失败');
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, report]);
 
   const handleFileChange = useCallback(async (file: File | null) => {
     setPdfFile(file);
     if (!file) return;
+    if (!electronAvailable) {
+      message.warning('请在 Electron 应用窗口中使用 OCR 解析功能');
+      return;
+    }
 
     setAnalyzing(true);
     setActiveView('report');
@@ -53,12 +71,12 @@ const App: React.FC = () => {
       setReport(result.report);
       message.success('解析完成');
     } catch (err) {
-      console.error('[analyzeCreditReport] error:', err);
+      logError('[analyzeCreditReport] error:', err);
       message.error('解析失败，请手动填写');
     } finally {
       setAnalyzing(false);
     }
-  }, []);
+  }, [electronAvailable]);
 
   return (
     <Layout className="h-screen bg-gray-50">
@@ -83,7 +101,8 @@ const App: React.FC = () => {
           <Button
             icon={<DownloadOutlined />}
             onClick={handleExport}
-            disabled={!report.header.reportNo}
+            disabled={!report.header.reportNo || exporting}
+            loading={exporting}
           >
             导出 Excel
           </Button>
@@ -96,6 +115,7 @@ const App: React.FC = () => {
           <Button
             icon={<SettingOutlined />}
             onClick={() => setSetupOpen(true)}
+            disabled={!electronAvailable}
           >
             设置
           </Button>
@@ -128,10 +148,12 @@ const App: React.FC = () => {
       </Content>
 
       <ProductDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} report={report} />
-      <SetupModal
-        open={setupOpen}
-        onSuccess={() => { setSetupOpen(false); setKeysReady(true); }}
-      />
+      {electronAvailable && (
+        <SetupModal
+          open={setupOpen}
+          onSuccess={() => { setSetupOpen(false); setKeysReady(true); }}
+        />
+      )}
     </Layout>
   );
 };

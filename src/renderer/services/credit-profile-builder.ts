@@ -12,6 +12,7 @@ import type {
   CreditProfile, BasicAccess, HardInjury, DebtStatus,
   QueryFrequency, AssetStatus, CreditHistory,
 } from '../types/credit-profile';
+import { calcAgeAt, getReferenceDate, monthsBefore, parseDateLoose } from '../utils/date-utils';
 
 /** 计入查询次数的查询原因 */
 const COUNTED_QUERY_REASONS = ['贷款审批', '信用卡审批', '担保资格审查'];
@@ -24,20 +25,21 @@ const AUTO_LOAN_KEYWORDS = ['汽车', '车贷', '购车'];
 
 /** 从 CreditReport 构建完整的 CreditProfile */
 export function buildCreditProfile(report: CreditReport): CreditProfile {
+  const referenceDate = getReferenceDate(report.header.reportTime);
   return {
-    basicAccess: buildBasicAccess(report),
+    basicAccess: buildBasicAccess(report, referenceDate),
     hardInjury: buildHardInjury(report),
-    debtStatus: buildDebtStatus(report),
-    queryFrequency: buildQueryFrequency(report),
+    debtStatus: buildDebtStatus(report, referenceDate),
+    queryFrequency: buildQueryFrequency(report, referenceDate),
     assetStatus: buildAssetStatus(report),
-    creditHistory: buildCreditHistory(report),
+    creditHistory: buildCreditHistory(report, referenceDate),
   };
 }
 
-function buildBasicAccess(r: CreditReport): BasicAccess {
+function buildBasicAccess(r: CreditReport, referenceDate: Date): BasicAccess {
   const id = r.personalInfo.identity;
   return {
-    age: calcAge(id.birthDate),
+    age: calcAgeAt(id.birthDate, referenceDate),
     marriage: id.maritalStatus,
     employmentStatus: id.employmentStatus,
     registeredAddress: id.registeredAddress,
@@ -74,10 +76,9 @@ function buildHardInjury(r: CreditReport): HardInjury {
   };
 }
 
-function buildDebtStatus(r: CreditReport): DebtStatus {
+function buildDebtStatus(r: CreditReport, referenceDate: Date): DebtStatus {
   const cd = r.creditDetail;
-  const now = new Date();
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+  const sixMonthsAgo = monthsBefore(referenceDate, 6);
 
   let totalLoanBalance = 0;
   let totalCardUsed = 0;
@@ -96,7 +97,7 @@ function buildDebtStatus(r: CreditReport): DebtStatus {
       totalLoanBalance += loan.balance ?? 0;
       totalMonthlyPayment += loan.monthlyPayment ?? 0;
     }
-    const openD = parseDate(loan.openDate);
+    const openD = parseDateLoose(loan.openDate);
     if (openD && openD >= sixMonthsAgo && !isClosed) newLoanIn6Months++;
   }
 
@@ -119,12 +120,12 @@ function buildDebtStatus(r: CreditReport): DebtStatus {
   };
 }
 
-function buildQueryFrequency(r: CreditReport): QueryFrequency {
+function buildQueryFrequency(r: CreditReport, referenceDate: Date): QueryFrequency {
   const qr = r.queryRecord;
   return {
-    queryIn1Month: countQueries(qr.orgQueries, 1),
-    queryIn3Months: countQueries(qr.orgQueries, 3),
-    queryIn6Months: countQueries(qr.orgQueries, 6),
+    queryIn1Month: countQueries(qr.orgQueries, 1, referenceDate),
+    queryIn3Months: countQueries(qr.orgQueries, 3, referenceDate),
+    queryIn6Months: countQueries(qr.orgQueries, 6, referenceDate),
   };
 }
 
@@ -151,7 +152,7 @@ function buildAssetStatus(r: CreditReport): AssetStatus {
   return { hasMortgage, hasAutoLoan, totalCardCreditLimit };
 }
 
-function buildCreditHistory(r: CreditReport): CreditHistory {
+function buildCreditHistory(r: CreditReport, referenceDate: Date): CreditHistory {
   const cd = r.creditDetail;
   const allDates: string[] = [];
 
@@ -163,12 +164,12 @@ function buildCreditHistory(r: CreditReport): CreditHistory {
   let earliest: Date | null = null;
   let earliestStr: string | null = null;
   for (const ds of allDates) {
-    const d = parseDate(ds);
+    const d = parseDateLoose(ds);
     if (d && (!earliest || d < earliest)) { earliest = d; earliestStr = ds; }
   }
 
   const creditYears = earliest
-    ? Math.floor((Date.now() - earliest.getTime()) / (365.25 * 86400000))
+    ? Math.floor((referenceDate.getTime() - earliest.getTime()) / (365.25 * 86400000))
     : null;
 
   const allLoans = [
@@ -181,32 +182,15 @@ function buildCreditHistory(r: CreditReport): CreditHistory {
 
 // ── 工具函数 ──
 
-/** 从出生日期计算年龄 */
-function calcAge(birthDate: string | null): number | null {
-  if (!birthDate) return null;
-  const m = birthDate.match(/(\d{4})/);
-  if (!m) return null;
-  const age = new Date().getFullYear() - parseInt(m[1], 10);
-  return (age >= 0 && age <= 120) ? age : null;
-}
-
-/** 解析日期字符串（兼容 "2025.01.20" / "2025-01-20" / "2025/01/20"） */
-function parseDate(dateStr: string): Date | null {
-  const m = dateStr.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
-  if (!m) return null;
-  return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
-}
-
 /** 统计近 N 个月的审批类查询次数 */
 function countQueries(
-  queries: { queryDate: string; queryReason: string }[], months: number,
+  queries: { queryDate: string; queryReason: string }[], months: number, referenceDate: Date,
 ): number {
-  const now = new Date();
-  const cutoff = new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
+  const cutoff = monthsBefore(referenceDate, months);
   let count = 0;
   for (const q of queries) {
     if (!COUNTED_QUERY_REASONS.some(r => q.queryReason.includes(r))) continue;
-    const d = parseDate(q.queryDate);
+    const d = parseDateLoose(q.queryDate);
     if (d && d >= cutoff) count++;
   }
   return count;

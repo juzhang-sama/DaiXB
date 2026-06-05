@@ -28,6 +28,7 @@ import { extractTablesFromDoc, groupAccountTables, type ContextTable } from './d
 import { classifyTables } from './table-classifier';
 import { scanLevel1Sections, scanLevel2CreditSections } from './section-locator';
 import { countAllSectionAccounts } from './section-search';
+import { buildReportProvenance } from './provenance';
 
 export interface ParseResult {
   profile: ClientProfile;
@@ -80,6 +81,7 @@ export function parseCreditReport(
   report.personalInfo.identity = identity;
   report.accountDerived = convertDerivedMap(accountDerived);
   report.accountBriefs = extractAccountBriefs(creditAccountTables);
+  report.provenance = buildReportProvenance(classified, accountGroups);
 
   // 从分组表格提取账户明细
   if (accountGroups) {

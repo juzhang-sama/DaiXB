@@ -5,16 +5,23 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Button, Card, Empty, Popconfirm, Collapse, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
+import { Drawer, Button, Card, Empty, Popconfirm, Collapse, Tooltip, Upload, message } from 'antd';
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined,
+  CopyOutlined, DownloadOutlined, UploadOutlined,
+} from '@ant-design/icons';
 import type { CreditReport } from '../types/credit-report';
 import type { ProductRule, ConditionRule } from '../types/product-rule';
 import { buildCreditProfile } from '../services/credit-profile-builder';
 import { matchAllProducts } from '../services/product-matcher';
 import type { ProductMatchResult, ConditionMatchResult } from '../services/product-matcher';
-import { getAllProducts, addProduct, updateProduct, deleteProduct } from '../services/product-store';
+import {
+  getAllProducts, addProduct, updateProduct, deleteProduct,
+  exportProducts, importProducts,
+} from '../services/product-store';
 import ProductForm from './ProductForm';
-import WeightConfigModal from './WeightConfigModal';
+
+const WeightConfigModal = React.lazy(() => import('./WeightConfigModal'));
 
 interface ProductDrawerProps {
   open: boolean;
@@ -105,6 +112,40 @@ const ProductDrawer: React.FC<ProductDrawerProps> = ({ open, onClose, report }) 
     setProducts(getAllProducts());
   }, []);
 
+  const handleDuplicate = useCallback((product: ProductRule) => {
+    addProduct({
+      name: `${product.name} 副本`,
+      institution: product.institution,
+      amountRange: [...product.amountRange] as [number, number],
+      rateRange: [...product.rateRange] as [number, number],
+      remark: product.remark,
+      conditions: product.conditions.map(c => ({ ...c })),
+    });
+    setProducts(getAllProducts());
+    message.success('已复制产品');
+  }, []);
+
+  const handleExportProducts = useCallback(() => {
+    const blob = new Blob([exportProducts()], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `产品规则库_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleImportProducts = useCallback(async (file: File) => {
+    try {
+      const count = importProducts(await file.text());
+      setProducts(getAllProducts());
+      message.success(`已导入 ${count} 个产品`);
+    } catch {
+      message.error('导入失败，请确认 JSON 格式正确');
+    }
+    return false;
+  }, []);
+
   const startEdit = (product: ProductRule) => {
     setEditingProduct(product);
     setView('edit');
@@ -121,14 +162,24 @@ const ProductDrawer: React.FC<ProductDrawerProps> = ({ open, onClose, report }) 
     <Drawer
       title="产品规则库"
       placement="right"
-      width={480}
+      size={480}
       open={open}
       onClose={() => { setView('list'); onClose(); }}
       extra={view === 'list' && (
-        <Button type="primary" size="small" icon={<PlusOutlined />}
-          onClick={() => setView('create')}>
-          新建产品
-        </Button>
+        <div className="flex gap-1">
+          <Tooltip title="导出产品规则">
+            <Button size="small" icon={<DownloadOutlined />} onClick={handleExportProducts} />
+          </Tooltip>
+          <Upload accept=".json" showUploadList={false} beforeUpload={handleImportProducts}>
+            <Tooltip title="导入产品规则">
+              <Button size="small" icon={<UploadOutlined />} />
+            </Tooltip>
+          </Upload>
+          <Button type="primary" size="small" icon={<PlusOutlined />}
+            onClick={() => setView('create')}>
+            新建产品
+          </Button>
+        </div>
       )}
     >
       {view === 'list' && (
@@ -147,6 +198,10 @@ const ProductDrawer: React.FC<ProductDrawerProps> = ({ open, onClose, report }) 
                       <Tooltip title="编辑">
                         <Button size="small" type="text" icon={<EditOutlined />}
                           onClick={() => startEdit(p)} />
+                      </Tooltip>
+                      <Tooltip title="复制">
+                        <Button size="small" type="text" icon={<CopyOutlined />}
+                          onClick={() => handleDuplicate(p)} />
                       </Tooltip>
                       <Popconfirm title="确定删除？" onConfirm={() => handleDelete(p.id)}>
                         <Button size="small" type="text" danger icon={<DeleteOutlined />} />
@@ -214,15 +269,18 @@ const ProductDrawer: React.FC<ProductDrawerProps> = ({ open, onClose, report }) 
         </div>
       )}
 
-      <WeightConfigModal
-        open={!!weightConfigProduct}
-        conditions={weightConfigProduct?.conditions ?? []}
-        onSave={handleWeightSave}
-        onCancel={() => setWeightConfigProduct(null)}
-      />
+      {weightConfigProduct && (
+        <React.Suspense fallback={null}>
+          <WeightConfigModal
+            open
+            conditions={weightConfigProduct.conditions}
+            onSave={handleWeightSave}
+            onCancel={() => setWeightConfigProduct(null)}
+          />
+        </React.Suspense>
+      )}
     </Drawer>
   );
 };
 
 export default ProductDrawer;
-

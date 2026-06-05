@@ -10,6 +10,7 @@ import { ReportHeader, QueryRecord } from '../../types/credit-report';
 import { IdentityInfo } from '../../types/credit-report';
 import { AccountOverdueSummary } from './account-overdue-parser';
 import type { AccountDerivedSummary } from './summary-from-accounts';
+import { calcAgeAt, getReferenceDate, monthsBefore, parseDateLoose } from '../../utils/date-utils';
 
 /** 桥接所需的解析结果集合 */
 export interface ParsedData {
@@ -26,16 +27,17 @@ export function buildClientProfile(data: ParsedData): ClientProfile {
   const derived = data.accountDerived;
   const revolving = mergeRevolvingDerived(derived);
   const card = derived?.creditCard;
+  const referenceDate = getReferenceDate(data.header.reportTime);
 
   return {
     name: data.header.name,
     idCard: data.header.certNo,
-    age: calcAge(data.identity.birthDate),
+    age: calcAgeAt(data.identity.birthDate, referenceDate),
     marriage: mapMarriage(data.identity.maritalStatus),
     company: data.latestCompany,
-    q1m: countQueriesInMonths(data.queryRecord, 1),
-    q2m: countQueriesInMonths(data.queryRecord, 2),
-    q6m: countQueriesInMonths(data.queryRecord, 6),
+    q1m: countQueriesInMonths(data.queryRecord, 1, referenceDate),
+    q2m: countQueriesInMonths(data.queryRecord, 2, referenceDate),
+    q6m: countQueriesInMonths(data.queryRecord, 6, referenceDate),
     overdueCurrent: data.accountOverdue.hasCurrentOverdue,
     overdueHistory: data.accountOverdue.maxOverduePeriods,
     totalCreditLimit: yuanToWan(card?.totalCredit ?? 0),
@@ -43,16 +45,6 @@ export function buildClientProfile(data: ParsedData): ClientProfile {
     monthlyRepayment: sumMonthlyRepayment(revolving, derived),
     monthlyIncome: null,
   };
-}
-
-/** 从出生日期计算年龄 */
-function calcAge(birthDate: string | null): number | null {
-  if (!birthDate) return null;
-  const match = birthDate.match(/(\d{4})/);
-  if (!match) return null;
-  const birthYear = parseInt(match[1], 10);
-  const age = new Date().getFullYear() - birthYear;
-  return (age >= 0 && age <= 120) ? age : null;
 }
 
 /** 映射婚姻状况 */
@@ -68,24 +60,16 @@ function mapMarriage(status: string | null): 'single' | 'married' | 'divorced' |
 const COUNTED_QUERY_REASONS = ['贷款审批', '信用卡审批', '担保资格审查'];
 
 /** 从查询记录明细统计近 N 个月的机构查询次数（仅计审批类查询） */
-function countQueriesInMonths(qr: QueryRecord | undefined, months: number): number | null {
+function countQueriesInMonths(qr: QueryRecord | undefined, months: number, referenceDate: Date): number | null {
   if (!qr) return null;
-  const now = new Date();
-  const cutoff = new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
+  const cutoff = monthsBefore(referenceDate, months);
   let count = 0;
   for (const q of qr.orgQueries) {
     if (!COUNTED_QUERY_REASONS.some(r => q.queryReason.includes(r))) continue;
-    const d = parseQueryDate(q.queryDate);
+    const d = parseDateLoose(q.queryDate);
     if (d && d >= cutoff) count++;
   }
   return count;
-}
-
-/** 解析查询日期字符串（支持 "2025.01.20" 和 "2025-01-20"） */
-function parseQueryDate(dateStr: string): Date | null {
-  const m = dateStr.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
-  if (!m) return null;
-  return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
 }
 
 /** 合并循环贷一和循环贷二的反算值 */

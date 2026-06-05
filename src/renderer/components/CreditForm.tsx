@@ -42,7 +42,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ profile, confidence, onChange, 
   });
 
   return (
-    <Spin spinning={loading} tip="正在解析征信报告...">
+    <Spin spinning={loading} description="正在解析征信报告...">
       <div className="p-6">
         <h2 className="text-lg font-semibold mb-4">征信报告解析</h2>
 
@@ -125,4 +125,3 @@ const CreditForm: React.FC<CreditFormProps> = ({ profile, confidence, onChange, 
 };
 
 export default CreditForm;
-

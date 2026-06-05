@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, message } from 'antd';
+import { Modal, Form, Input, message, Button, Divider } from 'antd';
 
 interface SetupModalProps {
   open: boolean;
@@ -13,6 +13,7 @@ interface SetupModalProps {
 }
 
 interface KeyFormValues {
+  [key: string]: string;
   textinAppId: string;
   textinSecretCode: string;
   deepseekApiKey: string;
@@ -21,6 +22,7 @@ interface KeyFormValues {
 const SetupModal: React.FC<SetupModalProps> = ({ open, onSuccess }) => {
   const [form] = Form.useForm<KeyFormValues>();
   const [saving, setSaving] = useState(false);
+  const [cacheStats, setCacheStats] = useState<{ count: number; bytes: number }>({ count: 0, bytes: 0 });
 
   useEffect(() => {
     if (!open) return;
@@ -31,6 +33,7 @@ const SetupModal: React.FC<SetupModalProps> = ({ open, onSuccess }) => {
         deepseekApiKey: keys.deepseekApiKey ?? '',
       });
     });
+    window.electron.getDocParserCacheStats().then(setCacheStats);
   }, [open, form]);
 
   const handleSave = async () => {
@@ -38,13 +41,19 @@ const SetupModal: React.FC<SetupModalProps> = ({ open, onSuccess }) => {
     setSaving(true);
     try {
       await window.electron.setApiKeys(values);
-      message.success('API Key 已保存，重启应用后生效');
+      message.success('API Key 已保存并立即生效');
       onSuccess();
     } catch {
       message.error('保存失败，请重试');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleClearCache = async () => {
+    const removed = await window.electron.clearDocParserCache();
+    setCacheStats({ count: 0, bytes: 0 });
+    message.success(`已清理 ${removed} 个 OCR 缓存文件`);
   };
 
   return (
@@ -54,7 +63,7 @@ const SetupModal: React.FC<SetupModalProps> = ({ open, onSuccess }) => {
       onOk={handleSave}
       confirmLoading={saving}
       closable={false}
-      maskClosable={false}
+      mask={{ closable: false }}
       okText="保存"
       cancelButtonProps={{ style: { display: 'none' } }}
     >
@@ -75,9 +84,23 @@ const SetupModal: React.FC<SetupModalProps> = ({ open, onSuccess }) => {
           <Input.Password placeholder="sk-..." />
         </Form.Item>
       </Form>
+      <Divider />
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-gray-500">
+          OCR 缓存：{cacheStats.count} 个文件，{formatBytes(cacheStats.bytes)}
+        </div>
+        <Button onClick={handleClearCache} disabled={cacheStats.count === 0}>
+          清理 OCR 缓存
+        </Button>
+      </div>
     </Modal>
   );
 };
 
-export default SetupModal;
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round(bytes / 1024 / 1024 * 10) / 10} MB`;
+}
 
+export default SetupModal;

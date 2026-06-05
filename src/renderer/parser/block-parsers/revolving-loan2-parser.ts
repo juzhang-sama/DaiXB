@@ -19,6 +19,7 @@ import type { ContextTable } from '../doc-table-bridge';
 import {
   getGroupValue, findLabelGroup, getLabeledValue, parseNum,
   hasLoanHeader, cleanOrg, cleanStatus, cleanNumStr, tryMergeSplitTable,
+  parseRepaymentRecords,
 } from './loan-table-utils';
 
 /** 统一用 groupSize=1（合并单元格值已重复填充） */
@@ -120,7 +121,7 @@ function extractFromTable(ct: ContextTable): RevolvingLoanAccount {
     actualPayment, currentOverdueCount, currentOverdueAmount,
     overdue31_60: null, overdue61_90: null,
     overdue91_180: null, overdue180plus: null,
-    specialTransactions: [], repaymentRecords: [], dataSource: null,
+    specialTransactions: [], repaymentRecords: parseRepaymentRecords(rows), dataSource: null,
   };
 }
 

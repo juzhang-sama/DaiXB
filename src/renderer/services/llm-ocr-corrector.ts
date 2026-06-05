@@ -10,6 +10,8 @@
  * - 失败时静默降级，返回原文
  */
 
+import { debugWarn } from '../utils/debug-log';
+
 const SYSTEM_PROMPT = `你是一个 OCR 纠错专家，专门处理中国央行个人征信报告的 OCR 识别结果。
 
 你的任务：
@@ -60,13 +62,13 @@ async function correctChunk(chunk: string): Promise<string> {
     // 基本校验：LLM 返回长度不应偏差太大，防止幻觉
     const lengthRatio = result.length / chunk.length;
     if (lengthRatio < 0.8 || lengthRatio > 1.2) {
-      console.warn('[LLM-OCR] length ratio abnormal: %.2f, using original', lengthRatio);
+      debugWarn('[LLM-OCR] length ratio abnormal: %.2f, using original', lengthRatio);
       return chunk;
     }
 
     return result;
   } catch (err) {
-    console.warn('[LLM-OCR] correction failed, using original text:', err);
+    debugWarn('[LLM-OCR] correction failed, using original text:', err);
     return chunk;
   }
 }
@@ -88,4 +90,3 @@ function splitIntoChunks(text: string, maxSize: number): string[] {
   if (current) chunks.push(current);
   return chunks;
 }
-

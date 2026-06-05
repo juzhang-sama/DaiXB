@@ -12,7 +12,9 @@ import type { ContextTable } from '../doc-table-bridge';
 import {
   getGroupValue, findLabelGroup, getLabeledValue, parseNum,
   isContinuationTable, hasLoanHeader, cleanStatus, tryMergeSplitTable,
+  parseRepaymentRecords,
 } from './loan-table-utils';
+import { debugLog } from '../../utils/debug-log';
 
 /** 在 headers 中查找借款金额（兼容 OCR 变体） */
 const AMOUNT_VARIANTS = ['借款金额', '僧款金额', '款金'];
@@ -51,11 +53,11 @@ function extractLoanFromTable(ct: ContextTable, tableIdx?: number): LoanAccount 
   const gs = 1;
 
   // Debug: 打印表格结构
-  console.log(`[NonRevolvingLoan] 表格${tableIdx ?? '?'} precedingText: "${ct.precedingText}"`);
-  console.log(`[NonRevolvingLoan] headers(${headers.length}):`, headers.slice(0, 10).join(' | '));
-  console.log(`[NonRevolvingLoan] rows count: ${rows.length}`);
+  debugLog(`[NonRevolvingLoan] 表格${tableIdx ?? '?'} precedingText: "${ct.precedingText}"`);
+  debugLog(`[NonRevolvingLoan] headers(${headers.length}):`, headers.slice(0, 10).join(' | '));
+  debugLog(`[NonRevolvingLoan] rows count: ${rows.length}`);
   for (let i = 0; i < Math.min(rows.length, 6); i++) {
-    console.log(`[NonRevolvingLoan] row[${i}](${rows[i]?.length ?? 0}):`, (rows[i] ?? []).slice(0, 10).join(' | '));
+    debugLog(`[NonRevolvingLoan] row[${i}](${rows[i]?.length ?? 0}):`, (rows[i] ?? []).slice(0, 10).join(' | '));
   }
 
   // 第一组：headers(标签) + row[0](值)
@@ -76,11 +78,11 @@ function extractLoanFromTable(ct: ContextTable, tableIdx?: number): LoanAccount 
   const repayMethod = getLabeledValue(labelRow1, valueRow1, '还款方式', gs);
 
   // Debug: 打印第二组提取结果
-  console.log(`[NonRevolvingLoan] 第二组提取: businessType="${businessType}" guaranteeType="${guaranteeType}" termCount="${termCount}" repayMethod="${repayMethod}"`);
+  debugLog(`[NonRevolvingLoan] 第二组提取: businessType="${businessType}" guaranteeType="${guaranteeType}" termCount="${termCount}" repayMethod="${repayMethod}"`);
 
   // 状态与五级分类：扫描所有行找"账户状态"标签
   const { status, statusRowIdx } = findStatusInRows(rows);
-  console.log(`[NonRevolvingLoan] findStatusInRows: status="${status}" statusRowIdx=${statusRowIdx}`);
+  debugLog(`[NonRevolvingLoan] findStatusInRows: status="${status}" statusRowIdx=${statusRowIdx}`);
   const isClosed = /结清|销户/.test(status);
   let fiveCategory: string | null = null;
 
@@ -122,7 +124,7 @@ function extractLoanFromTable(ct: ContextTable, tableIdx?: number): LoanAccount 
     actualPayment, currentOverdueCount, currentOverdueAmount,
     overdue31_60: null, overdue61_90: null,
     overdue91_180: null, overdue180plus: null,
-    specialTransactions: [], repaymentRecords: [], dataSource: null,
+    specialTransactions: [], repaymentRecords: parseRepaymentRecords(rows), dataSource: null,
   };
 }
 
@@ -151,4 +153,3 @@ export function parseNonRevolvingLoans(tables: ContextTable[]): LoanAccount[] {
   }
   return accounts;
 }
-

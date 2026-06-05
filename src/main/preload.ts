@@ -18,5 +18,10 @@ contextBridge.exposeInMainWorld('electron', {
   /** 检查 API Key 是否已配置 */
   hasApiKeys: (): Promise<boolean> =>
     ipcRenderer.invoke('config:hasKeys'),
+  /** 清理本地 OCR 文档解析缓存 */
+  clearDocParserCache: (): Promise<number> =>
+    ipcRenderer.invoke('cache:clearDocParser'),
+  /** 获取 OCR 文档解析缓存统计 */
+  getDocParserCacheStats: (): Promise<{ count: number; bytes: number }> =>
+    ipcRenderer.invoke('cache:getDocParserStats'),
 });
-

@@ -7,6 +7,7 @@
  */
 
 import type { DocParserResult } from '../../shared/doc-parser-types';
+import { debugLog } from '../utils/debug-log';
 
 /** 章节位置信息 */
 export interface SectionLocation {
@@ -124,7 +125,7 @@ export function scanLevel1Sections(doc: DocParserResult): Map<Level1Section, Sec
     found.push({ type: 'queryRecord', name: '四 查询记录(推断)', lp: inferredLp, y: 0 });
     // 重新排序
     found.sort((a, b) => a.lp - b.lp || a.y - b.y);
-    console.log(`[scanLevel1Sections] queryRecord 未找到，根据 selfQueryDetail@lp${selfQueryDetail.lp} 推断为 lp${inferredLp}`);
+    debugLog(`[scanLevel1Sections] queryRecord 未找到，根据 selfQueryDetail@lp${selfQueryDetail.lp} 推断为 lp${inferredLp}`);
   }
 
   // 构建映射，计算每个章节的结束页码
@@ -140,7 +141,7 @@ export function scanLevel1Sections(doc: DocParserResult): Map<Level1Section, Sec
     });
   }
 
-  console.log('[scanLevel1Sections] found:', found.map((f) => `${f.type}@lp${f.lp}`).join(', '));
+  debugLog('[scanLevel1Sections] found:', found.map((f) => `${f.type}@lp${f.lp}`).join(', '));
   cachedLevel1Map = map;
   return map;
 }
@@ -185,7 +186,7 @@ export function scanLevel2CreditSections(doc: DocParserResult): Map<Level2Credit
     });
   }
 
-  console.log('[scanLevel2CreditSections] found:', found.map((f) => `${f.type}@lp${f.lp}y${f.y}`).join(', '));
+  debugLog('[scanLevel2CreditSections] found:', found.map((f) => `${f.type}@lp${f.lp}y${f.y}`).join(', '));
   cachedLevel2CreditMap = map;
   return map;
 }
@@ -199,4 +200,3 @@ export function getLevel1Map(): Map<Level1Section, SectionLocation> {
 export function getLevel2CreditMap(): Map<Level2CreditSection, SectionLocation> {
   return cachedLevel2CreditMap ?? new Map();
 }
-

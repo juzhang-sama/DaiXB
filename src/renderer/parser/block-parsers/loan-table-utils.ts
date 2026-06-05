@@ -5,6 +5,7 @@
  */
 
 import type { ContextTable } from '../doc-table-bridge';
+import type { RepaymentRecord } from '../../types/credit-report';
 
 /** 取一组内第一个非空值 */
 export function getGroupValue(row: string[], groupStart: number, groupSize: number): string {
@@ -153,4 +154,38 @@ export function cleanNumStr(raw: string): string {
   if (!raw) return '';
   const first = splitLines(raw)[0].trim();
   return first;
+}
+
+/** 从账户表格中提取还款记录，识别形态：年份 + 12个月状态码 */
+export function parseRepaymentRecords(rows: string[][]): RepaymentRecord[] {
+  const records: RepaymentRecord[] = [];
+
+  for (const row of rows) {
+    const yearIdx = row.findIndex((cell) => /^20\d{2}$/.test(cell.trim()));
+    if (yearIdx < 0) continue;
+
+    const year = parseInt(row[yearIdx], 10);
+    const statuses = row
+      .slice(yearIdx + 1)
+      .map(cleanStatusCode)
+      .filter((code): code is string => code !== null)
+      .slice(0, 12);
+
+    if (statuses.length < 6) continue;
+
+    records.push({
+      year,
+      months: Array.from({ length: 12 }, (_, i) => statuses[i] ?? null),
+    });
+  }
+
+  return records;
+}
+
+function cleanStatusCode(raw: string): string | null {
+  const code = raw.trim().replace(/\s/g, '');
+  if (!code) return null;
+  if (/^[1-7]$/.test(code)) return code;
+  if (/^(N|C|D|G|Z|\*|\/|#)$/.test(code)) return code;
+  return null;
 }

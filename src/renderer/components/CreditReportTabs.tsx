@@ -5,6 +5,7 @@ import PersonalInfoTab from './tabs/PersonalInfoTab';
 import CreditDetailTab from './tabs/CreditDetailTab';
 import QueryRecordTab from './tabs/QueryRecordTab';
 import CreditAssessmentTab from './tabs/CreditAssessmentTab';
+import ProvenanceTab from './tabs/ProvenanceTab';
 
 interface CreditReportTabsProps {
   report: CreditReport;
@@ -22,10 +23,11 @@ const CreditReportTabs: React.FC<CreditReportTabsProps> = ({ report, loading, on
     { key: 'credit', label: '信贷交易信息明细', children: <CreditDetailTab report={report} onChange={onChange} /> },
     { key: 'query', label: '查询记录', children: <QueryRecordTab report={report} onChange={onChange} /> },
     { key: 'assessment', label: '征信评估', children: <CreditAssessmentTab report={report} /> },
+    { key: 'provenance', label: '字段溯源', children: <ProvenanceTab report={report} /> },
   ];
 
   return (
-    <Spin spinning={loading} tip="正在解析征信报告...">
+    <Spin spinning={loading} description="正在解析征信报告...">
       <div className="bg-white shadow rounded-lg p-6 min-h-[500px]">
         <Tabs
           defaultActiveKey="personal"
@@ -39,4 +41,3 @@ const CreditReportTabs: React.FC<CreditReportTabsProps> = ({ report, loading, on
 };
 
 export default CreditReportTabs;
-

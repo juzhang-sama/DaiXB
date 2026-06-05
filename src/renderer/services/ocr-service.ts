@@ -5,6 +5,7 @@ import { MIN_TEXT_LENGTH, isImageFile } from '../config/ocr-config';
 import { parseDocument } from './baidu-ocr';
 import { correctOcrText, correctDocResult } from '../parser/ocr-corrector';
 import { reorderPages, reorderDocPages } from '../parser/page-reorder';
+import { DEBUG_ENABLED, debugLog } from '../utils/debug-log';
 import * as pdfjsLib from 'pdfjs-dist';
 
 /**
@@ -128,7 +129,7 @@ export async function analyzeCreditReport(file: File): Promise<OcrResult> {
 
   if (image) {
     // 图片 → 直接走 OCR，无 pdfjs 文本层
-    console.log('[DocParser] image file detected, using document parser...');
+    debugLog('[DocParser] image file detected, using document parser...');
     docResult = await analyzeViaOcr(file);
     fullText = extractTextFromDocParser(docResult);
     fullText = correctOcrText(fullText);
@@ -138,7 +139,7 @@ export async function analyzeCreditReport(file: File): Promise<OcrResult> {
     const isScanned = fullText.trim().length < MIN_TEXT_LENGTH;
 
     if (isScanned) {
-      console.log('[DocParser] scanned pdf detected, using document parser...');
+      debugLog('[DocParser] scanned pdf detected, using document parser...');
       docResult = await analyzeViaOcr(file);
       fullText = extractTextFromDocParser(docResult);
       fullText = correctOcrText(fullText);
@@ -146,10 +147,10 @@ export async function analyzeCreditReport(file: File): Promise<OcrResult> {
   }
 
   const { profile, confidence, report, debugBlockMap } = parseCreditReport(fullText, undefined, docResult);
-  if (debugBlockMap) {
-    console.log('[Debug] blockMap.level1:', JSON.stringify(debugBlockMap.level1));
-    console.log('[Debug] blockMap.level2:', JSON.stringify(debugBlockMap.level2));
-    console.log('[Debug] blockMap.accounts count:', debugBlockMap.accounts?.length);
+  if (DEBUG_ENABLED && debugBlockMap) {
+    debugLog('[Debug] blockMap.level1:', JSON.stringify(debugBlockMap.level1));
+    debugLog('[Debug] blockMap.level2:', JSON.stringify(debugBlockMap.level2));
+    debugLog('[Debug] blockMap.accounts count:', debugBlockMap.accounts?.length);
   }
   return { profile, confidence, report };
 }
@@ -158,16 +159,16 @@ export async function analyzeCreditReport(file: File): Promise<OcrResult> {
 async function analyzeViaOcr(file: File): Promise<DocParserResult> {
   const base64 = await fileToBase64(file);
   const docResult = await parseDocument(base64, file.name || 'document');
-  console.log('[DocParser] pages count:', docResult.pages?.length ?? 'undefined');
+  debugLog('[DocParser] pages count:', docResult.pages?.length ?? 'undefined');
 
   // 页面重排：根据页脚逻辑页码修正乱序，并更新 page_num
   docResult.pages = reorderDocPages(docResult.pages);
   docResult.pages.forEach((p, i) => { p.page_num = i; });
 
   correctDocResult(docResult);
-  console.log('[OcrCorrector] docResult corrected');
+  debugLog('[OcrCorrector] docResult corrected');
 
-  debugPageStructure(docResult);
+  if (DEBUG_ENABLED) debugPageStructure(docResult);
   return docResult;
 }
 
@@ -177,11 +178,11 @@ async function analyzeViaOcr(file: File): Promise<DocParserResult> {
  * - 章节标题的 position.x 和 page_num（验证左右栏）
  */
 function debugPageStructure(doc: DocParserResult): void {
-  console.log('\n========== [Debug] 页面结构分析 ==========');
+  debugLog('\n========== [Debug] 页面结构分析 ==========');
 
   // 打印所有物理页码，检查是否有遗漏
   const pageNums = doc.pages.map((p) => p.page_num);
-  console.log(`[Debug] 物理页码列表 (共${doc.pages.length}页):`, pageNums.join(', '));
+  debugLog(`[Debug] 物理页码列表 (共${doc.pages.length}页):`, pageNums.join(', '));
 
   // 打印物理页 → 逻辑页对照表（从页脚提取）
   const pageFooterPattern = /第(\d+)页[，,。./\s]*共(\d+)页/;
@@ -201,16 +202,16 @@ function debugPageStructure(doc: DocParserResult): void {
     const lp = m ? `逻辑页${m[1]}/${m[2]}` : `无页脚(${footerText.slice(0, 20)})`;
     pageMapping.push(`物理${page.page_num}→${lp}`);
   }
-  console.log(`[Debug] 页码对照:`, pageMapping.join(' | '));
+  debugLog(`[Debug] 页码对照:`, pageMapping.join(' | '));
 
   // 打印前两页的全部 layouts（用于排查页脚识别问题）
   for (const page of doc.pages.slice(0, 2)) {
     const pn = page.page_num;
-    console.log(`[Debug] --- 物理页${pn} layouts(${page.layouts.length}) ---`);
+    debugLog(`[Debug] --- 物理页${pn} layouts(${page.layouts.length}) ---`);
     for (let i = 0; i < page.layouts.length; i++) {
       const l = page.layouts[i];
       const sub = l.sub_type ? ` sub=${l.sub_type}` : '';
-      console.log(
+      debugLog(
         `[Debug] 页${pn} [${i}] type=${l.type}${sub} x=${l.position[0]} y=${l.position[1]} text="${l.text?.slice(0, 80) ?? ''}"`,
       );
     }
@@ -229,7 +230,7 @@ function debugPageStructure(doc: DocParserResult): void {
     );
     for (const f of footers) {
       const side = f.position[0] < midX ? '左栏' : '右栏';
-      console.log(`[Footer] 物理页${page.page_num} ${side} x=${f.position[0]}: "${f.text}"`);
+        debugLog(`[Footer] 物理页${page.page_num} ${side} x=${f.position[0]}: "${f.text}"`);
     }
 
     // 找章节标题
@@ -240,11 +241,10 @@ function debugPageStructure(doc: DocParserResult): void {
 
       if (isSection || isAccount) {
         const side = layout.position[0] < midX ? '左栏' : '右栏';
-        console.log(`[Section] 物理页${page.page_num} ${side} x=${layout.position[0]}: "${text}"`);
+        debugLog(`[Section] 物理页${page.page_num} ${side} x=${layout.position[0]}: "${text}"`);
       }
     }
   }
 
-  console.log('========== [Debug] 页面结构分析结束 ==========\n');
+  debugLog('========== [Debug] 页面结构分析结束 ==========\n');
 }
-

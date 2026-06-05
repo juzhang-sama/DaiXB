@@ -81,6 +81,20 @@ export interface CreditReport {
   repayResponsibilities: RepayResponsibilityAccount[];
   /** 授信协议信息 */
   creditAgreements: CreditAgreement[];
+  /** 字段/模块溯源信息，用于人工核对和调试 */
+  provenance: Record<string, FieldProvenance>;
+}
+
+/** 单个字段或模块的来源说明 */
+export interface FieldProvenance {
+  field: string;
+  source: 'doc-table' | 'pdf-text' | 'derived' | 'manual' | 'unknown';
+  label: string;
+  pageNum?: number;
+  logicalPage?: number;
+  positionY?: number;
+  precedingText?: string;
+  confidence?: number;
 }
 
 // ============================================================
@@ -456,5 +470,6 @@ export function createEmptyCreditReport(): CreditReport {
     disputeInfo: { disputeCount: 0 },
     repayResponsibilities: [],
     creditAgreements: [],
+    provenance: {},
   };
 }

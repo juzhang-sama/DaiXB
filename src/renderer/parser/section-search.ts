@@ -9,6 +9,7 @@
 
 import type { DocParserResult, DocLayout } from '../../shared/doc-parser-types';
 import { getLevel2CreditMap, type Level2CreditSection, type SectionLocation } from './section-locator';
+import { debugLog } from '../utils/debug-log';
 
 /** 搜索结果项 */
 export interface SearchHit {
@@ -125,7 +126,7 @@ export function countAccountsInSection(
   const sectionMap = getLevel2CreditMap();
   const section = sectionMap.get(sectionType);
   if (!section) {
-    console.log(`[countAccountsInSection] section ${sectionType} not found`);
+    debugLog(`[countAccountsInSection] section ${sectionType} not found`);
     return 0;
   }
 
@@ -140,7 +141,7 @@ export function countAccountsInSection(
   // 去重：同一个账户可能在多个 layout 中出现
   const uniqueAccounts = new Set(hits.map(h => h.text));
 
-  console.log(`[countAccountsInSection] ${sectionType}: found ${uniqueAccounts.size} accounts`,
+  debugLog(`[countAccountsInSection] ${sectionType}: found ${uniqueAccounts.size} accounts`,
     Array.from(uniqueAccounts).join(', '));
 
   return uniqueAccounts.size;
@@ -164,7 +165,6 @@ export function countAllSectionAccounts(doc: DocParserResult): Record<Level2Cred
     result[s] = countAccountsInSection(doc, s);
   }
 
-  console.log('[countAllSectionAccounts] result:', result);
+  debugLog('[countAllSectionAccounts] result:', result);
   return result;
 }
-

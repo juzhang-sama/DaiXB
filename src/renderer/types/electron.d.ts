@@ -13,6 +13,10 @@ interface ElectronAPI {
   setApiKeys: (keys: Record<string, string>) => Promise<void>;
   /** 检查 API Key 是否已配置 */
   hasApiKeys: () => Promise<boolean>;
+  /** 清理本地 OCR 文档解析缓存 */
+  clearDocParserCache: () => Promise<number>;
+  /** 获取 OCR 文档解析缓存统计 */
+  getDocParserCacheStats: () => Promise<{ count: number; bytes: number }>;
 }
 
 declare global {
@@ -22,4 +26,3 @@ declare global {
 }
 
 export {};
-

@@ -6,8 +6,8 @@
  */
 
 import React, { useMemo, useState, useCallback } from 'react';
-import { Card, Tag, Button, Descriptions } from 'antd';
-import { RobotOutlined } from '@ant-design/icons';
+import { Card, Tag, Button, Descriptions, Modal, Input, message } from 'antd';
+import { RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import type { CreditReport } from '../../types/credit-report';
 import type { RiskLevel } from '../../services/assessment-config-default';
 import { buildCreditProfile } from '../../services/credit-profile-builder';
@@ -15,6 +15,10 @@ import { assessCredit } from '../../services/credit-assessment';
 import type { DimensionResult, Indicator } from '../../services/credit-assessment';
 import { getLLMComments } from '../../services/llm-service';
 import type { LLMComments } from '../../services/llm-service';
+import {
+  configToJson, getAssessmentConfig,
+  parseConfigJson, resetAssessmentConfig, saveAssessmentConfig,
+} from '../../services/assessment-config-store';
 
 interface CreditAssessmentTabProps {
   report: CreditReport;
@@ -95,11 +99,14 @@ const DimensionCard: React.FC<{ dim: DimensionResult; comment?: string }> = ({ d
 
 const CreditAssessmentTab: React.FC<CreditAssessmentTabProps> = ({ report }) => {
   const profile = useMemo(() => buildCreditProfile(report), [report]);
-  const result = useMemo(() => assessCredit(profile), [profile]);
+  const [config, setConfig] = useState(() => getAssessmentConfig());
+  const result = useMemo(() => assessCredit(profile, config), [profile, config]);
 
   const [comments, setComments] = useState<LLMComments | null>(null);
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmError, setLlmError] = useState<string>('');
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configJson, setConfigJson] = useState(() => configToJson(config));
 
   const handleLlmAnalysis = useCallback(async () => {
     setLlmLoading(true);
@@ -114,6 +121,30 @@ const CreditAssessmentTab: React.FC<CreditAssessmentTabProps> = ({ report }) => 
       setLlmLoading(false);
     }
   }, [profile, result]);
+
+  const openConfig = useCallback(() => {
+    setConfigJson(configToJson(config));
+    setConfigOpen(true);
+  }, [config]);
+
+  const saveConfig = useCallback(() => {
+    try {
+      const next = parseConfigJson(configJson);
+      saveAssessmentConfig(next);
+      setConfig(next);
+      setConfigOpen(false);
+      message.success('评估阈值已保存');
+    } catch {
+      message.error('配置 JSON 格式错误');
+    }
+  }, [configJson]);
+
+  const resetConfig = useCallback(() => {
+    const next = resetAssessmentConfig();
+    setConfig(next);
+    setConfigJson(configToJson(next));
+    message.success('已恢复默认阈值');
+  }, []);
 
   const dims = result.dimensions;
   const dc = comments?.dimensions;
@@ -144,6 +175,9 @@ const CreditAssessmentTab: React.FC<CreditAssessmentTabProps> = ({ report }) => 
           >
             {comments ? '重新分析' : 'AI 点评'}
           </Button>
+          <Button icon={<SettingOutlined />} onClick={openConfig}>
+            阈值配置
+          </Button>
         </div>
         {llmError && (
           <div className="text-red-500 text-xs mt-2">{llmError}</div>
@@ -151,6 +185,11 @@ const CreditAssessmentTab: React.FC<CreditAssessmentTabProps> = ({ report }) => 
         {comments?.overall && (
           <div className="text-sm text-blue-600 bg-blue-50 rounded px-3 py-2 mt-3">
             <RobotOutlined className="mr-1" />{comments.overall}
+            {comments.evidence.length > 0 && (
+              <div className="mt-2 text-xs text-blue-500">
+                依据：{comments.evidence.join('；')}
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -176,11 +215,35 @@ const CreditAssessmentTab: React.FC<CreditAssessmentTabProps> = ({ report }) => 
               ? '部分数据不足（还款记录 OCR 暂不支持），连三累六暂无法判断'
               : '数据完整'}
           </Descriptions.Item>
+          <Descriptions.Item label="字段溯源">
+            已记录 {Object.keys(report.provenance ?? {}).length} 个关键字段/模块来源
+          </Descriptions.Item>
           <Descriptions.Item label="免责说明">
             评估结果仅供参考，不构成任何信贷决策建议
           </Descriptions.Item>
         </Descriptions>
       </Card>
+
+      <Modal
+        title="评估阈值配置"
+        open={configOpen}
+        onOk={saveConfig}
+        onCancel={() => setConfigOpen(false)}
+        okText="保存"
+        cancelText="取消"
+        width={720}
+      >
+        <div className="flex justify-end mb-2">
+          <Button size="small" onClick={resetConfig}>恢复默认</Button>
+        </div>
+        <Input.TextArea
+          value={configJson}
+          onChange={(e) => setConfigJson(e.target.value)}
+          rows={18}
+          spellCheck={false}
+          className="font-mono text-xs"
+        />
+      </Modal>
     </div>
   );
 };

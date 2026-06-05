@@ -1,3 +1,5 @@
+import { debugLog, debugWarn } from '../utils/debug-log';
+
 /**
  * 页面重排器 — 根据页脚中的逻辑页码对乱序页面重新排序
  *
@@ -42,7 +44,7 @@ export function reorderPages(pages: string[]): string[] {
 
   // 检查是否需要重排：有页码的页面不足一半，放弃重排
   if (numbered.length < pages.length / 2) {
-    console.log('[PageReorder] too few pages with page numbers, skipping reorder');
+    debugLog('[PageReorder] too few pages with page numbers, skipping reorder');
     return pages;
   }
 
@@ -53,7 +55,7 @@ export function reorderPages(pages: string[]): string[] {
   });
 
   if (isOrdered) {
-    console.log('[PageReorder] pages already in order');
+    debugLog('[PageReorder] pages already in order');
     return pages;
   }
 
@@ -64,14 +66,14 @@ export function reorderPages(pages: string[]): string[] {
   const seen = new Set<number>();
   for (const p of numbered) {
     if (seen.has(p.logicalPage!)) {
-      console.warn(`[PageReorder] duplicate logical page ${p.logicalPage}`);
+      debugWarn(`[PageReorder] duplicate logical page ${p.logicalPage}`);
     }
     seen.add(p.logicalPage!);
   }
 
   const reordered = [...numbered, ...unnumbered].map((p) => p.text);
 
-  console.log(
+  debugLog(
     '[PageReorder] reordered %d pages, physical→logical: %s',
     pages.length,
     numbered.map((p) => `${p.physicalIdx}→${p.logicalPage}`).join(', '),
@@ -99,7 +101,7 @@ export function reorderDocPages<T extends { layouts: Array<{ text: string; type:
   const unnumbered = withIndex.filter((p) => p.logicalPage === null);
 
   if (numbered.length < pages.length / 2) {
-    console.log('[PageReorder] doc pages: too few with page numbers, skipping');
+    debugLog('[PageReorder] doc pages: too few with page numbers, skipping');
     return pages;
   }
 
@@ -109,13 +111,13 @@ export function reorderDocPages<T extends { layouts: Array<{ text: string; type:
   });
 
   if (isOrdered) {
-    console.log('[PageReorder] doc pages already in order');
+    debugLog('[PageReorder] doc pages already in order');
     return pages;
   }
 
   numbered.sort((a, b) => a.logicalPage! - b.logicalPage!);
 
-  console.log(
+  debugLog(
     '[PageReorder] doc pages reordered: %s',
     numbered.map((p) => `phys${p.physicalIdx}→lp${p.logicalPage}`).join(', '),
   );
@@ -141,4 +143,3 @@ function extractLogicalPageFromLayouts(
   }
   return null;
 }
-

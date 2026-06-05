@@ -21,6 +21,7 @@ import type { ContextTable } from '../doc-table-bridge';
 import {
   getGroupValue, findLabelGroup, getLabeledValue, parseNum,
   cleanOrg, cleanStatus, cleanNumStr, tryMergeSplitTable,
+  parseRepaymentRecords,
 } from './loan-table-utils';
 
 const GS = 1;
@@ -144,7 +145,7 @@ function extractFromTable(ct: ContextTable): CreditCardAccount {
     currentOverdueAmount: null,
     largeInstallmentInfo: null,
     specialTransactions: [],
-    repaymentRecords: [],
+    repaymentRecords: parseRepaymentRecords(rows),
     dataSource: null,
   };
 }
@@ -169,4 +170,3 @@ export function parseCreditCards(tables: ContextTable[]): CreditCardAccount[] {
   }
   return accounts;
 }
-

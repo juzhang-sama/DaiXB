@@ -14,8 +14,9 @@ if errorlevel 1 (
 )
 
 echo [2/3] Starting Vite dev server...
-start "" cmd /c "npx vite --host 127.0.0.1 --port 5173"
+set "DEV_SERVER_PORT=5175"
+set "ELECTRON_RENDERER_URL=http://localhost:%DEV_SERVER_PORT%"
+start "" cmd /c "npx vite --host ::1 --port %DEV_SERVER_PORT% --strictPort"
 
 echo [3/3] Waiting for Vite, then launching Electron...
-npx wait-on http://localhost:5173 && npx electron .
-
+npx wait-on %ELECTRON_RENDERER_URL% && npx electron .
