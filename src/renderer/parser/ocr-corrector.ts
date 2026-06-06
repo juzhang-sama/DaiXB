@@ -145,6 +145,7 @@ function fixTermsByFuzzyMatch(text: string): string {
 
     result = result.replace(regex, (match) => {
       if (match === term) return match; // 已经正确，跳过
+      if (!isSafeTermReplacement(match, term)) return match;
       return term;
     });
   }
@@ -165,7 +166,7 @@ function buildFuzzyRegex(term: string): RegExp | null {
 
   // 生成每个位置替换一个字的变体模式
   for (let i = 0; i < chars.length; i++) {
-    const parts = chars.map((c, j) => (i === j ? '.' : escapeRegex(c)));
+    const parts = chars.map((c, j) => (i === j ? '[\\u4e00-\\u9fa5]' : escapeRegex(c)));
     variants.push(parts.join(''));
   }
 
@@ -175,7 +176,34 @@ function buildFuzzyRegex(term: string): RegExp | null {
     return null;
   }
 }
+
+function isSafeTermReplacement(match: string, term: string): boolean {
+  if (match.length !== term.length) return false;
+  if (/[0-9A-Za-z]/.test(match)) return false;
+  if (countSameChars(match, term) < term.length - 1) return false;
+  if (term.length <= 3) {
+    return match[0] === term[0] || match[match.length - 1] === term[term.length - 1];
+  }
+  return hasCommonBigram(match, term);
+}
+
+function countSameChars(a: string, b: string): number {
+  let count = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] === b[i]) count++;
+  }
+  return count;
+}
+
+function hasCommonBigram(a: string, b: string): boolean {
+  const grams = new Set<string>();
+  for (let i = 0; i < b.length - 1; i++) grams.add(b.slice(i, i + 2));
+  for (let i = 0; i < a.length - 1; i++) {
+    if (grams.has(a.slice(i, i + 2))) return true;
+  }
+  return false;
+}
+
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-

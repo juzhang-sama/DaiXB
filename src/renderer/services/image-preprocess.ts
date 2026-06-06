@@ -6,11 +6,13 @@
  */
 
 /** 预处理配置 */
-interface PreprocessOptions {
+export interface PreprocessOptions {
   /** 对比度增强系数，1.0 = 不变，>1 增强 */
   contrast: number;
   /** 二值化阈值（0-255），低于此值变黑，高于变白 */
   binaryThreshold: number;
+  /** 是否用 Otsu 自动阈值替代固定阈值 */
+  adaptiveThreshold: boolean;
   /** 是否启用去噪（中值滤波） */
   denoise: boolean;
 }
@@ -18,6 +20,7 @@ interface PreprocessOptions {
 const DEFAULT_OPTIONS: PreprocessOptions = {
   contrast: 1.5,
   binaryThreshold: 160,
+  adaptiveThreshold: false,
   denoise: true,
 };
 
@@ -43,7 +46,7 @@ export async function preprocessImage(
 
   applyGrayscale(data);
   applyContrast(data, opts.contrast);
-  applyBinarize(data, opts.binaryThreshold);
+  applyBinarize(data, opts.adaptiveThreshold ? calculateOtsuThreshold(data) : opts.binaryThreshold);
 
   if (opts.denoise) {
     applyMedianFilter(imageData);
@@ -89,6 +92,41 @@ function applyBinarize(data: Uint8ClampedArray, threshold: number): void {
   }
 }
 
+function calculateOtsuThreshold(data: Uint8ClampedArray): number {
+  const hist = new Array<number>(256).fill(0);
+  let total = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    hist[data[i]]++;
+    total++;
+  }
+
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0;
+  let wB = 0;
+  let maxVariance = 0;
+  let threshold = 160;
+
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+
+    sumB += i * hist[i];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const variance = wB * wF * (mB - mF) ** 2;
+    if (variance > maxVariance) {
+      maxVariance = variance;
+      threshold = i;
+    }
+  }
+
+  return threshold;
+}
+
 /**
  * 3x3 中值滤波去噪
  * 对灰度图有效，消除孤立噪点（扫描件常见的椒盐噪声）
@@ -125,4 +163,3 @@ function getNeighborValues(
 function clamp(val: number): number {
   return Math.max(0, Math.min(255, Math.round(val)));
 }
-

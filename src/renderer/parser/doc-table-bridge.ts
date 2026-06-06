@@ -1,7 +1,7 @@
 /**
  * 文档解析结果桥接层 — 从 DocParserResult 提取所有 Markdown 表格
  *
- * 将百度文档解析 API 返回的结构化数据转为 ParsedTable 数组，
+ * 将 TextIn 适配层返回的结构化数据转为 ParsedTable 数组，
  * 供各 block parser 按关键词搜索表格并提取值
  */
 
@@ -211,6 +211,34 @@ function categorizeByPosition(
   return null;
 }
 
+function inferCategoryFromTable(ct: ContextTable): AccountCategory | null {
+  const text = [
+    ct.precedingText,
+    ...ct.table.headers,
+    ...ct.table.rows.slice(0, 6).flat(),
+  ].join(' ');
+
+  if (text.includes('相关还款责任信息') || text.includes('还款责任金额') ||
+      text.includes('责任人类型') || text.includes('主业务借款人')) {
+    return 'repayResponsibility';
+  }
+  if (text.includes('授信协议信息') || text.includes('授信协议标识') ||
+      text.includes('授信额度用途')) {
+    return 'creditAgreement';
+  }
+  if (text.includes('贷记卡账户') || text.includes('发卡机构') ||
+      text.includes('卡机构') || text.includes('账单日')) {
+    return 'creditCard';
+  }
+  if (text.includes('循环贷账户二')) return 'revolvingLoan2';
+  if (text.includes('循环贷账户一')) return 'revolvingLoan1';
+  if (text.includes('非循环贷账户')) return 'nonRevolvingLoan';
+  if (text.includes('管理机构') && text.includes('账户授信额度')) return 'revolvingLoan2';
+  if (text.includes('管理机构') && text.includes('借款金额')) return 'nonRevolvingLoan';
+
+  return null;
+}
+
 /** 判断是否为新账户/新条目表格（兼容 OCR 丢字：账户→戶/户） */
 const ACCOUNT_PATTERN = /[账戶户]户?\d+/;
 /** 扩展模式：匹配 "账户"（无数字）或 "授信协议N" */
@@ -359,7 +387,8 @@ export function groupAccountTables(
     if (isBeyondBoundary(ct, boundaryLp, boundaryY)) continue;
     // 匹配 "账户N" 或 "账户"（无数字）或 "授信协议N"
     if (ACCOUNT_PATTERN.test(ct.precedingText) || ENTRY_PATTERN.test(ct.precedingText)) {
-      const category = categorizeByPosition(ct.logicalPage, ct.positionY, sectionPages);
+      const category = categorizeByPosition(ct.logicalPage, ct.positionY, sectionPages) ??
+        inferCategoryFromTable(ct);
       if (category) {
         categoryMap.set(idx, category);
       }
@@ -380,13 +409,16 @@ export function groupAccountTables(
     let category: AccountCategory | null = null;
 
     if (isNewEntry) {
-      category = categoryMap.get(idx) ?? null;
+      category = categoryMap.get(idx) ?? inferCategoryFromTable(ct);
       newAccountCount++;
     } else {
       category = findSourceCategory(idx, tables, sectionPages);
       // 溯源失败时：先尝试用自身位置推断分类，再回退到前一张表
       if (!category) {
         category = categorizeByPosition(ct.logicalPage, ct.positionY, sectionPages);
+      }
+      if (!category) {
+        category = inferCategoryFromTable(ct);
       }
       if (!category && lastCategory) {
         category = lastCategory;

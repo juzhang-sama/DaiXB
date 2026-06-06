@@ -41,6 +41,8 @@ export interface OcrResult {
   profile: ClientProfile;
   confidence: ConfidenceMap;
   report: import('../types/credit-report').CreditReport;
+  quality?: import('../parser/ocr-quality').OcrQualityReport;
+  diagnostics?: import('./ocr-diagnostics').OcrDiagnosticsReport;
 }
 
 /** 置信度低于此阈值时标记为需人工核对 */
@@ -63,4 +65,3 @@ export const EMPTY_CLIENT_PROFILE: ClientProfile = {
   monthlyRepayment: null,
   monthlyIncome: null,
 };
-

@@ -153,8 +153,8 @@ function findLabelValue(t: ParsedTable, label: string): string {
 
 /** 判断单元格是否是标签（而非数值） */
 function isLabelCell(val: string): boolean {
-  // 如果包含中文且不是纯数字，可能是标签
-  const hasChineseLabel = /[机构种类方式状态额度余额日期]/.test(val);
+  // 如果包含字段名关键词且不是纯数字，可能是标签。不能把"正常"这类状态值误判为标签。
+  const hasChineseLabel = /机构|种类|方式|状态|额度|余额|日期|还款|期数|分类|币种|账户|金额|借款|利率|标识|合同|到期|开立|证件|编号|授信/.test(val);
   const isNumeric = /^[\d,.\-]+$/.test(val.replace(/\s/g, ''));
   return hasChineseLabel && !isNumeric;
 }
@@ -162,7 +162,10 @@ function isLabelCell(val: string): boolean {
 /** 解析文档解析返回的数值字符串 */
 function parseDocNum(val: string | undefined): number {
   if (!val) return 0;
-  const cleaned = val.trim().replace(/,/g, '').replace(/--/g, '0');
+  const cleaned = val.trim()
+    .replace(/,/g, '')
+    .replace(/--/g, '0')
+    .replace(/\.(\d{3})(?!\d)/g, '$1');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
 }
@@ -262,4 +265,3 @@ function findLabeledNumber(lines: string[], label: string): number {
   }
   return 0;
 }
-

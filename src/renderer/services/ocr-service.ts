@@ -2,11 +2,29 @@ import { DocParserResult } from '../../shared/doc-parser-types';
 import { OcrResult } from '../types/client-profile';
 import { parseCreditReport } from '../parser';
 import { MIN_TEXT_LENGTH, isImageFile } from '../config/ocr-config';
-import { parseDocument } from './baidu-ocr';
+import { parseDocument } from './textin-document-parser';
 import { correctOcrText, correctDocResult } from '../parser/ocr-corrector';
 import { reorderPages, reorderDocPages } from '../parser/page-reorder';
+import { evaluateOcrQuality } from '../parser/ocr-quality';
 import { DEBUG_ENABLED, debugLog } from '../utils/debug-log';
+import { mergeDocParserResults } from './doc-parser-merge';
+import { preprocessImage, type PreprocessOptions } from './image-preprocess';
+import { evaluateImageQuality } from './image-quality';
+import { validateCreditReportData } from './credit-report-validation';
+import { normalizeCreditReportInstitutions } from './institution-normalizer';
+import { pdfToImages } from './pdf-to-image';
+import type {
+  ImageQualityDiagnostic,
+  InstitutionCorrectionDiagnostic,
+  OcrCandidateDiagnostic,
+  OcrDiagnosticsReport,
+} from '../types/ocr-diagnostics';
 import * as pdfjsLib from 'pdfjs-dist';
+
+interface OcrDocumentResult {
+  docResult: DocParserResult;
+  candidates: OcrCandidateDiagnostic[];
+}
 
 /**
  * 从电子版 PDF 直接提取文本层
@@ -117,20 +135,73 @@ function markdownTableToPlainLines(markdown: string): string {
   return result.join('\n');
 }
 
+function buildDiagnostics(
+  report: import('../types/credit-report').CreditReport,
+  images: ImageQualityDiagnostic[] = [],
+  candidates: OcrCandidateDiagnostic[] = [],
+  institutionCorrections: InstitutionCorrectionDiagnostic[] = [],
+): OcrDiagnosticsReport {
+  return {
+    images,
+    candidates,
+    institutionCorrections,
+    validation: validateCreditReportData(report),
+  };
+}
+
+function logQuality(quality: ReturnType<typeof evaluateOcrQuality> | undefined): void {
+  if (!quality) return;
+  debugLog('[OCRQuality]', JSON.stringify({
+    profile: quality.profile,
+    score: quality.score,
+    pages: quality.pages,
+    tables: quality.tables.count,
+    anchors: `${quality.anchors.found}/${quality.anchors.required}`,
+    issues: quality.issues,
+  }));
+}
+
 /**
  * 解析征信报告（自动选择路径）
  * 路径 A：电子版 PDF → 文本直提 → 解析引擎
- * 路径 B：扫描件 PDF → 百度文档解析 API → 结构化数据 → 解析引擎
+ * 路径 B：扫描件 PDF/图片 → TextIn 文档解析 API → 结构化数据 → 解析引擎
  */
 export async function analyzeCreditReport(file: File): Promise<OcrResult> {
+  return analyzeSingleCreditReport(file);
+}
+
+export async function analyzeCreditReportFiles(files: File[]): Promise<OcrResult> {
+  const validFiles = files.filter(Boolean);
+  if (validFiles.length === 0) {
+    throw new Error('No files selected');
+  }
+
+  if (validFiles.length === 1) {
+    return analyzeSingleCreditReport(validFiles[0]);
+  }
+
+  if (!validFiles.every(isImageFile)) {
+    throw new Error('Multiple-file OCR only supports image files');
+  }
+
+  return analyzeImageSetCreditReport(validFiles);
+}
+
+async function analyzeSingleCreditReport(file: File): Promise<OcrResult> {
   const image = isImageFile(file);
   let fullText = '';
   let docResult: DocParserResult | undefined;
+  const imageDiagnostics: ImageQualityDiagnostic[] = [];
+  let candidateDiagnostics: OcrCandidateDiagnostic[] = [];
 
   if (image) {
     // 图片 → 直接走 OCR，无 pdfjs 文本层
     debugLog('[DocParser] image file detected, using document parser...');
-    docResult = await analyzeViaOcr(file);
+    const imageQuality = await evaluateImageQuality(file);
+    imageDiagnostics.push(imageQuality);
+    const result = await analyzeImageViaOcrCandidates(file, imageQuality);
+    docResult = result.docResult;
+    candidateDiagnostics = result.candidates;
     fullText = extractTextFromDocParser(docResult);
     fullText = correctOcrText(fullText);
   } else {
@@ -140,27 +211,253 @@ export async function analyzeCreditReport(file: File): Promise<OcrResult> {
 
     if (isScanned) {
       debugLog('[DocParser] scanned pdf detected, using document parser...');
-      docResult = await analyzeViaOcr(file);
+      const result = await analyzeScannedPdfViaOcrCandidates(file);
+      docResult = result.docResult;
+      candidateDiagnostics = result.candidates;
       fullText = extractTextFromDocParser(docResult);
       fullText = correctOcrText(fullText);
     }
   }
 
-  const { profile, confidence, report, debugBlockMap } = parseCreditReport(fullText, undefined, docResult);
+  const quality = docResult ? evaluateOcrQuality(docResult) : undefined;
+  logQuality(quality);
+
+  const { profile, confidence, report: parsedReport, debugBlockMap } = parseCreditReport(fullText, undefined, docResult);
+  const { report, corrections } = normalizeCreditReportInstitutions(parsedReport);
   if (DEBUG_ENABLED && debugBlockMap) {
     debugLog('[Debug] blockMap.level1:', JSON.stringify(debugBlockMap.level1));
     debugLog('[Debug] blockMap.level2:', JSON.stringify(debugBlockMap.level2));
     debugLog('[Debug] blockMap.accounts count:', debugBlockMap.accounts?.length);
   }
-  return { profile, confidence, report };
+  return {
+    profile,
+    confidence,
+    report,
+    quality,
+    diagnostics: buildDiagnostics(report, imageDiagnostics, candidateDiagnostics, corrections),
+  };
 }
 
 /** 通过 OCR API 解析文件，返回结构化结果 */
+async function analyzeImageSetCreditReport(files: File[]): Promise<OcrResult> {
+  debugLog('[DocParser] multi-image document detected, pages:', files.length);
+  const imageDiagnostics: ImageQualityDiagnostic[] = [];
+  for (const file of files) {
+    imageDiagnostics.push(await evaluateImageQuality(file));
+  }
+  const imageResult = await analyzeMultiImageViaOcr(files, imageDiagnostics);
+  const { docResult } = imageResult;
+  let fullText = extractTextFromDocParser(docResult);
+  fullText = correctOcrText(fullText);
+
+  const quality = evaluateOcrQuality(docResult);
+  logQuality(quality);
+
+  const { profile, confidence, report: parsedReport, debugBlockMap } = parseCreditReport(fullText, undefined, docResult);
+  const { report, corrections } = normalizeCreditReportInstitutions(parsedReport);
+  if (DEBUG_ENABLED && debugBlockMap) {
+    debugLog('[Debug] blockMap.level1:', JSON.stringify(debugBlockMap.level1));
+    debugLog('[Debug] blockMap.level2:', JSON.stringify(debugBlockMap.level2));
+    debugLog('[Debug] blockMap.accounts count:', debugBlockMap.accounts?.length);
+  }
+  return {
+    profile,
+    confidence,
+    report,
+    quality,
+    diagnostics: buildDiagnostics(report, imageDiagnostics, imageResult.candidates, corrections),
+  };
+}
+
 async function analyzeViaOcr(file: File): Promise<DocParserResult> {
+  return normalizeOcrDocResult(await parseViaOcr(file));
+}
+
+async function analyzeImageViaOcrCandidates(
+  file: File,
+  imageQuality?: ImageQualityDiagnostic,
+): Promise<OcrDocumentResult> {
+  const originalBase64 = await fileToBase64(file);
+  return analyzeBase64ViaOcrCandidates(file.name, originalBase64, imageQuality);
+}
+
+async function analyzeBase64ViaOcrCandidates(
+  fileName: string,
+  originalBase64: string,
+  imageQuality?: ImageQualityDiagnostic,
+): Promise<OcrDocumentResult> {
+  const candidates: Array<{ variant: string; base64: string }> = [
+    { variant: '原图', base64: originalBase64 },
+  ];
+
+  const original = await parseBase64Candidate(fileName, candidates[0]);
+  let parsed = [original];
+
+  if (shouldTryEnhancedCandidates(original.quality.score, imageQuality)) {
+    const enhanced = await buildPreprocessCandidates(originalBase64);
+    for (const candidate of enhanced) {
+      try {
+        parsed.push(await parseBase64Candidate(fileName, candidate));
+      } catch (err) {
+        debugLog(`[DocParser] OCR candidate skipped: ${fileName} ${candidate.variant}`, err);
+      }
+    }
+  }
+
+  const best = parsed.reduce((winner, item) =>
+    rankCandidate(item.quality) > rankCandidate(winner.quality) ? item : winner,
+  );
+
+  const diagnostics = parsed.map((item) => ({
+    fileName,
+    variant: item.variant,
+    selected: item === best,
+    score: item.quality.score,
+    tables: item.quality.tables.count,
+    anchorsFound: item.quality.anchors.found,
+    issues: item.quality.issues,
+  }));
+
+  return {
+    docResult: best.docResult,
+    candidates: diagnostics,
+  };
+}
+
+async function analyzeScannedPdfViaOcrCandidates(file: File): Promise<OcrDocumentResult> {
+  const original = await analyzeViaOcr(file);
+  const originalQuality = evaluateOcrQuality(original);
+  const originalDiagnostic: OcrCandidateDiagnostic = {
+    fileName: file.name,
+    variant: '原始PDF',
+    selected: true,
+    score: originalQuality.score,
+    tables: originalQuality.tables.count,
+    anchorsFound: originalQuality.anchors.found,
+    issues: originalQuality.issues,
+  };
+
+  if (!shouldTryEnhancedCandidates(originalQuality.score)) {
+    return { docResult: original, candidates: [originalDiagnostic] };
+  }
+
+  try {
+    const pageImages = await pdfToImages(file);
+    const pageResults: DocParserResult[] = [];
+    const pageCandidates: OcrCandidateDiagnostic[] = [];
+    for (let i = 0; i < pageImages.length; i++) {
+      const result = await analyzeBase64ViaOcrCandidates(`${file.name}#第${i + 1}页`, pageImages[i]);
+      pageResults.push(result.docResult);
+      pageCandidates.push(...result.candidates);
+    }
+
+    const rendered = normalizeOcrDocResult(mergeDocParserResults(pageResults, `${file.name}#逐页渲染`));
+    const renderedQuality = evaluateOcrQuality(rendered);
+    const renderedDiagnostic: OcrCandidateDiagnostic = {
+      fileName: file.name,
+      variant: 'PDF逐页渲染',
+      selected: false,
+      score: renderedQuality.score,
+      tables: renderedQuality.tables.count,
+      anchorsFound: renderedQuality.anchors.found,
+      issues: renderedQuality.issues,
+    };
+
+    const useRendered = rankCandidate(renderedQuality) > rankCandidate(originalQuality);
+    originalDiagnostic.selected = !useRendered;
+    renderedDiagnostic.selected = useRendered;
+
+    return {
+      docResult: useRendered ? rendered : original,
+      candidates: [originalDiagnostic, renderedDiagnostic, ...pageCandidates],
+    };
+  } catch (err) {
+    debugLog('[DocParser] scanned pdf rendered candidates failed, using original pdf OCR', err);
+    return { docResult: original, candidates: [originalDiagnostic] };
+  }
+}
+
+async function analyzeMultiImageViaOcr(
+  files: File[],
+  imageDiagnostics: ImageQualityDiagnostic[],
+): Promise<OcrDocumentResult> {
+  const results: DocParserResult[] = [];
+  const candidates: OcrCandidateDiagnostic[] = [];
+  for (let i = 0; i < files.length; i++) {
+    debugLog(`[DocParser] OCR image ${i + 1}/${files.length}:`, files[i].name);
+    const result = await analyzeImageViaOcrCandidates(files[i], imageDiagnostics[i]);
+    results.push(result.docResult);
+    candidates.push(...result.candidates);
+  }
+
+  return {
+    docResult: normalizeOcrDocResult(mergeDocParserResults(results, buildMultiImageFileName(files))),
+    candidates,
+  };
+}
+
+async function parseBase64Candidate(
+  fileName: string,
+  candidate: { variant: string; base64: string },
+): Promise<{ variant: string; docResult: DocParserResult; quality: ReturnType<typeof evaluateOcrQuality> }> {
+  const docResult = normalizeOcrDocResult(
+    await parseDocument(candidate.base64, `${fileName}#${candidate.variant}`),
+  );
+  return {
+    variant: candidate.variant,
+    docResult,
+    quality: evaluateOcrQuality(docResult),
+  };
+}
+
+async function buildPreprocessCandidates(
+  base64: string,
+): Promise<Array<{ variant: string; base64: string }>> {
+  const variants: Array<{ variant: string; options: Partial<PreprocessOptions> }> = [
+    { variant: '增强对比', options: { contrast: 1.35, binaryThreshold: 175, denoise: false } },
+    { variant: '轻二值化', options: { contrast: 1.55, binaryThreshold: 155, denoise: true } },
+    { variant: '自适应二值化', options: { contrast: 1.45, adaptiveThreshold: true, denoise: true } },
+  ];
+  const results: Array<{ variant: string; base64: string }> = [];
+
+  for (const variant of variants) {
+    try {
+      results.push({
+        variant: variant.variant,
+        base64: await preprocessImage(base64, variant.options),
+      });
+    } catch (err) {
+      debugLog(`[ImagePreprocess] ${variant.variant} failed`, err);
+    }
+  }
+
+  return results;
+}
+
+function shouldTryEnhancedCandidates(
+  originalScore: number,
+  imageQuality?: ImageQualityDiagnostic,
+): boolean {
+  if (imageQuality && (imageQuality.score < 0.86 || imageQuality.issues.length > 0)) return true;
+  return originalScore < 0.86;
+}
+
+function rankCandidate(quality: ReturnType<typeof evaluateOcrQuality>): number {
+  return quality.score * 100
+    + quality.tables.count * 1.2
+    + quality.anchors.found * 0.7
+    + quality.scope.recognizedModules.length * 1.5
+    - quality.issues.length * 1.8;
+}
+
+async function parseViaOcr(file: File): Promise<DocParserResult> {
   const base64 = await fileToBase64(file);
   const docResult = await parseDocument(base64, file.name || 'document');
   debugLog('[DocParser] pages count:', docResult.pages?.length ?? 'undefined');
+  return docResult;
+}
 
+function normalizeOcrDocResult(docResult: DocParserResult): DocParserResult {
   // 页面重排：根据页脚逻辑页码修正乱序，并更新 page_num
   docResult.pages = reorderDocPages(docResult.pages);
   docResult.pages.forEach((p, i) => { p.page_num = i; });
@@ -170,6 +467,11 @@ async function analyzeViaOcr(file: File): Promise<DocParserResult> {
 
   if (DEBUG_ENABLED) debugPageStructure(docResult);
   return docResult;
+}
+
+function buildMultiImageFileName(files: File[]): string {
+  const first = files[0]?.name?.replace(/\.[^.]+$/, '') || 'multi-image-credit-report';
+  return `${first}_等${files.length}张图片`;
 }
 
 /**

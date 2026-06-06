@@ -1,7 +1,7 @@
 /**
  * Markdown 表格解析器 — 将文档解析 API 返回的 Markdown 表格转为二维数组
  *
- * 征信报告中的表格由百度文档解析 API 以 Markdown 格式返回，
+ * 征信报告中的表格由文档解析适配层以 Markdown 格式返回，
  * 本模块将其解析为 string[][] 供各 block parser 按行列索引取值
  */
 
@@ -76,9 +76,9 @@ export function getRowValues(table: ParsedTable, labelKeyword: string): string[]
 }
 
 /**
- * 百度文档解析表格专用：找到包含标签关键词的行，返回下一行同列的值
+ * 文档解析表格专用：找到包含标签关键词的行，返回下一行同列的值
  *
- * 百度 API 表格结构：headers=类别标题(重复), row[0]=字段标签, row[1]=值
+ * 常见表格结构：headers=类别标题(重复), row[0]=字段标签, row[1]=值
  * 例如：headers=['非循环贷账户信息汇总', ...], row[0]=['管理机构数','账户数',...], row[1]=['2','2',...]
  */
 export function getValuesBelow(table: ParsedTable, labelKeyword: string): string[] {
@@ -97,7 +97,7 @@ export function getValuesBelow(table: ParsedTable, labelKeyword: string): string
 }
 
 /**
- * 百度文档解析表格专用：按列标签取值
+ * 文档解析表格专用：按列标签取值
  *
  * 遍历 headers 和所有 rows，找到包含 colLabel 的行作为标签行，
  * 下一行为值行，返回对应列的值。
@@ -133,4 +133,3 @@ export function getCellValue(
   }
   return undefined;
 }
-

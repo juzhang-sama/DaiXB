@@ -12,7 +12,7 @@
 import type { OrgQueryRecord, SelfQueryRecord } from '../../types/credit-report';
 import type { ContextTable } from '../doc-table-bridge';
 
-const DATE_PATTERN = /20\d{2}[.:]\d{2}[.:]\d{2}/;
+const DATE_PATTERN = /20\d{2}[\s.:]\d{2}[\s.:]\d{2}/;
 /** 清洗查询原因：去除尾部标点、不可见字符、OCR 杂质 */
 const KNOWN_REASONS = ['贷后管理', '贷款审批', '信用卡审批', '担保资格审查', '资信审查', '本人查询', '公积金提取审查'];
 
@@ -39,9 +39,9 @@ function cleanReason(raw: string): string {
 
 /** 清洗日期中 OCR 误识别的冒号 */
 function cleanDate(raw: string): string {
-  const m = raw.match(/20\d{2}[.:]\d{2}[.:]\d{2}/);
+  const m = raw.match(DATE_PATTERN);
   if (!m) return raw.trim();
-  return m[0].replace(/:/g, '.');
+  return m[0].trim().replace(/[\s:]/g, '.').replace(/\.+/g, '.');
 }
 
 /** 通用查询记录提取：从一行 cells 中提取日期、机构、原因 */

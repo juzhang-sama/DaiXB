@@ -1,18 +1,9 @@
 /**
  * 相关还款责任信息明细解析器
  *
- * 从 DocParser 分组后的 ContextTable[] 提取 RepayResponsibilityAccount[]
- *
- * 表格形态（由 OCR 识别结果决定）：
- * - 表头表：在页尾，只有 headers 没有数据行（rows=0）
- *   headers: ["管理机构-", "=\n业务种类", "开立日期", "到期日期", "责任人类型", "还款责任金额", "币种", "保证合同编号"]
- * - 续表：在下一页左上角，包含实际数据（row[0] 基本信息值，row[2]/row[3] 含主业务借款人/余额等）
- *
- * 与贷款类的差异：
- * - 表头和数据可能分在两张表中（跨页）
- * - headers 中用"管理机构"（可能带 OCR 杂质如"管理机构-"）
- * - row[0] 对应 headers 的值行（管理机构、责任人类型、还款责任金额等）
- * - row[2]/row[3] 为标签行+值行，含"主业务借款人"、"余额"等
+ * 央行本人详版里该模块常见两种 OCR 形态：
+ * - 跨页截断：表头在上一栏/上一页，下一张表的 headers 实际是第一行值
+ * - 同表完整：headers 是字段名，row[0] 是字段值，后续是借款人/余额等标签值行
  */
 
 import type { RepayResponsibilityAccount } from '../../types/credit-report';
@@ -23,114 +14,175 @@ import {
 } from './loan-table-utils';
 
 const GS = 1;
+const RESP_TYPE_KEYWORDS = ['保证人', '共同借款人', '担保人', '抵押人'];
+const NUM_PATTERN = /^[0-9,]+(?:\.\d+)?$/;
 
-/** 判断是否为还款责任表头（headers 含"管理机构"或"责任"相关关键词） */
+interface BasicInfo {
+  org: string;
+  businessType: string;
+  openDate: string;
+  endDate: string | null;
+  responsibilityType: string;
+  responsibilityAmount: number;
+  currency: string;
+  contractNo: string | null;
+}
+
+interface DetailInfo {
+  borrowerName: string | null;
+  borrowerCertType: string | null;
+  borrowerCertNo: string | null;
+  balance: number | null;
+  fiveCategory: string | null;
+  repayStatus: string | null;
+}
+
 function isHeaderTable(ct: ContextTable): boolean {
   return ct.table.headers.some(h =>
     h.includes('管理机构') || h.includes('责任人') || h.includes('还款责任'),
   );
 }
 
-/**
- * 从续表 headers（实际是值行）中按语义提取字段
- *
- * 表头表和续表列数不对齐（8 vs 10），不能按索引匹配。
- * 续表 headers 的值有明确语义特征，直接按模式识别：
- * - 管理机构：含"银行"|"公司"|"金融"的最长字符串
- * - 责任人类型："保证人"|"共同借款人"等固定枚举
- * - 还款责任金额：纯数字（带逗号），取第一个匹配
- */
+function extractBasicInfo(labelRow: string[], valueRow: string[]): BasicInfo {
+  const semantic = extractSemanticBasicInfo(valueRow);
+  const amountRaw = getByLabel(labelRow, valueRow, '还款责任金额');
 
-const RESP_TYPE_KEYWORDS = ['保证人', '共同借款人', '担保人', '抵押人'];
-const NUM_PATTERN = /^[0-9,]+$/;
+  return {
+    org: cleanOrg(getByLabel(labelRow, valueRow, '管理机构') || semantic.org),
+    businessType: getByLabel(labelRow, valueRow, '业务种类'),
+    openDate: getByLabel(labelRow, valueRow, '开立日期'),
+    endDate: nullable(getByLabel(labelRow, valueRow, '到期日期')),
+    responsibilityType: getByLabel(labelRow, valueRow, '责任人类型') || semantic.responsibilityType,
+    responsibilityAmount: amountRaw ? parseNum(cleanNumStr(amountRaw)) : semantic.responsibilityAmount,
+    currency: getByLabel(labelRow, valueRow, '币种'),
+    contractNo: nullable(getByLabel(labelRow, valueRow, '保证合同编号')),
+  };
+}
 
-/** 从续表 headers 值行中按语义提取基本信息 */
-function extractBasicInfo(values: string[]): {
-  org: string; responsibilityType: string; responsibilityAmount: number;
+function extractSemanticBasicInfo(values: string[]): {
+  org: string;
+  responsibilityType: string;
+  responsibilityAmount: number;
 } {
   let org = '';
   let responsibilityType = '';
   const amounts: number[] = [];
 
-  for (const v of values) {
-    const trimmed = v.trim();
-    // 责任人类型
+  for (const value of values) {
+    const trimmed = value.trim();
     if (!responsibilityType && RESP_TYPE_KEYWORDS.some(k => trimmed.includes(k))) {
       responsibilityType = trimmed;
       continue;
     }
-    // 管理机构：含机构关键词且比当前更长
-    if ((trimmed.includes('银行') || trimmed.includes('公司') || trimmed.includes('金融')) && trimmed.length > org.length) {
+    if (isOrgLike(trimmed) && trimmed.length > org.length) {
       org = trimmed;
       continue;
     }
-    // 数值（还款责任金额候选）
-    if (NUM_PATTERN.test(trimmed) && trimmed.length > 0) {
+    if (NUM_PATTERN.test(trimmed)) {
       amounts.push(parseNum(cleanNumStr(trimmed)));
     }
   }
 
-  // 还款责任金额取第一个数值（通常是较大的那个）
-  const responsibilityAmount = amounts.length > 0 ? amounts[0] : 0;
-  return { org: cleanOrg(org), responsibilityType, responsibilityAmount };
+  return {
+    org: cleanOrg(org),
+    responsibilityType,
+    responsibilityAmount: amounts[0] ?? 0,
+  };
 }
 
-/** 从续表 rows 提取主业务借款人和余额 */
-function extractDetailInfo(rows: string[][]): {
-  borrowerName: string | null; balance: number | null;
-} {
-  const borrowerLabelRow = rows[0] ?? [];
-  const borrowerValueRow = rows[1] ?? [];
-  const borrowerName = getLabeledValue(borrowerLabelRow, borrowerValueRow, '主业务借款人', GS) || null;
+function extractDetailInfo(rows: string[][]): DetailInfo {
+  const borrowerPair = findLabelValuePair(rows, '主业务借款人');
+  const statusPair = findLabelValuePair(rows, '余额') ?? findLabelValuePair(rows, '五级分类');
 
-  const balanceLabelRow = rows[3] ?? [];
-  const balanceValueRow = rows[4] ?? [];
-  const balanceRaw = getLabeledValue(balanceLabelRow, balanceValueRow, '余额', GS);
-  const balance = balanceRaw ? parseNum(cleanNumStr(balanceRaw)) : null;
+  const borrowerName = borrowerPair
+    ? nullable(getByLabel(borrowerPair.labelRow, borrowerPair.valueRow, '主业务借款人'))
+    : null;
+  const borrowerCertType = borrowerPair
+    ? nullable(getByLabel(borrowerPair.labelRow, borrowerPair.valueRow, '主业务借款人证件类型'))
+    : null;
+  const borrowerCertNo = borrowerPair
+    ? nullable(getByLabel(borrowerPair.labelRow, borrowerPair.valueRow, '主业务借款人证件号码'))
+    : null;
 
-  return { borrowerName, balance };
-}
-
-/** 从表头表 + 续表提取单个还款责任账户 */
-function extractAccount(
-  dataTable: ContextTable,
-): RepayResponsibilityAccount {
-  const { org, responsibilityType, responsibilityAmount } = extractBasicInfo(dataTable.table.headers);
-  const { borrowerName, balance } = extractDetailInfo(dataTable.table.rows);
+  const balanceRaw = statusPair
+    ? getByLabel(statusPair.labelRow, statusPair.valueRow, '余额')
+    : '';
 
   return {
-    org,
-    businessType: '',
-    openDate: '',
-    endDate: null,
-    responsibilityType,
-    responsibilityAmount,
-    currency: '',
-    contractNo: null,
     borrowerName,
-    borrowerCertType: null,
-    borrowerCertNo: null,
-    balance,
-    fiveCategory: null,
-    repayStatus: null,
+    borrowerCertType,
+    borrowerCertNo,
+    balance: balanceRaw ? parseNum(cleanNumStr(balanceRaw)) : null,
+    fiveCategory: statusPair
+      ? nullable(getByLabel(statusPair.labelRow, statusPair.valueRow, '五级分类'))
+      : null,
+    repayStatus: statusPair
+      ? nullable(getByLabel(statusPair.labelRow, statusPair.valueRow, '还款状态'))
+      : null,
+  };
+}
+
+function extractAccount(dataTable: ContextTable, headerLabels?: string[]): RepayResponsibilityAccount | null {
+  const valueRow = headerLabels ? dataTable.table.headers : dataTable.table.rows[0];
+  if (!valueRow) return null;
+
+  const basic = extractBasicInfo(headerLabels ?? dataTable.table.headers, valueRow);
+  const detailRows = headerLabels ? dataTable.table.rows : dataTable.table.rows.slice(1);
+  const detail = extractDetailInfo(detailRows);
+
+  return {
+    ...basic,
+    ...detail,
     dataSource: null,
   };
 }
 
-/** 从分组后的还款责任表格提取所有账户 */
 export function parseRepayResponsibilities(
   tables: ContextTable[],
 ): RepayResponsibilityAccount[] {
-  if (tables.length === 0) return [];
+  const accounts: RepayResponsibilityAccount[] = [];
 
-  // 找到表头表（headers 含"管理机构"等关键词，rows=0）
-  const headerIdx = tables.findIndex(isHeaderTable);
-  if (headerIdx < 0) return [];
+  for (let i = 0; i < tables.length; i++) {
+    const current = tables[i];
+    if (!isHeaderTable(current)) continue;
 
-  const dataTable = tables[headerIdx + 1];
-  if (!dataTable) return [];
+    if (current.table.rows.length > 0) {
+      const account = extractAccount(current);
+      if (account) accounts.push(account);
+      continue;
+    }
 
-  const account = extractAccount(dataTable);
-  return [account];
+    const next = tables[i + 1];
+    if (!next) continue;
+    const account = extractAccount(next, current.table.headers);
+    if (account) accounts.push(account);
+    i++;
+  }
+
+  return accounts;
 }
 
+function getByLabel(labelRow: string[], valueRow: string[], keyword: string): string {
+  return getLabeledValue(labelRow, valueRow, keyword, GS).trim();
+}
+
+function findLabelValuePair(rows: string[][], keyword: string): {
+  labelRow: string[];
+  valueRow: string[];
+} | null {
+  for (let i = 0; i < rows.length - 1; i++) {
+    if (rows[i].some((cell) => cell.includes(keyword))) {
+      return { labelRow: rows[i], valueRow: rows[i + 1] };
+    }
+  }
+  return null;
+}
+
+function nullable(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function isOrgLike(value: string): boolean {
+  return value.includes('银行') || value.includes('公司') || value.includes('金融');
+}

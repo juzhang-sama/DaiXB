@@ -140,7 +140,7 @@ function htmlTableToMarkdown(html: string): string {
     const tdRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
     let m: RegExpExecArray | null;
     while ((m = tdRegex.exec(tr)) !== null) {
-      // 提取 colspan 用于重复填充（百度 API 的合并单元格行为）
+      // 提取 colspan 用于重复填充，保持历史解析器依赖的合并单元格展开行为。
       const colspanMatch = m[0].match(/colspan="(\d+)"/i);
       const colspan = colspanMatch ? parseInt(colspanMatch[1], 10) : 1;
       // 清理 HTML 标签，<br> 转 \n
@@ -266,7 +266,7 @@ function convertPage(
     if (block.type === 'table') {
       const tableId = `${idBase}_t${tableCount++}`;
       tables.push(convertTable(block, tableId, lineMap));
-      // 百度 API 兼容：layouts 中需要一个 type='table' 的占位元素，
+      // 兼容历史解析器：layouts 中需要一个 type='table' 的占位元素，
       // layout_id 与 tables 中的对应，供 doc-table-bridge 按 id 关联
       layouts.push({
         layout_id: tableId,
@@ -385,8 +385,8 @@ function convertResponse(
 // ─── 对外接口 ───────────────────────────────────────
 
 /**
- * 使用 TextIn 解析 PDF 文档
- * 接口签名与百度版一致，可直接替换
+ * 使用 TextIn 解析 PDF/图片文档。
+ * 返回统一的 DocParserResult，供渲染进程复用既有表格解析链路。
  */
 export async function parseDocument(
   fileBase64: string,

@@ -1,4 +1,4 @@
-/** 百度文档解析 API 返回的结构化类型 */
+/** TextIn 文档解析适配层返回的统一结构化类型 */
 
 /** 单个表格单元格 */
 export interface DocCell {
@@ -58,27 +58,3 @@ export interface DocParserResult {
   file_id: string;
   pages: DocPage[];
 }
-
-/** 提交任务的响应 */
-export interface DocParserSubmitResponse {
-  error_code: number;
-  error_msg: string;
-  log_id: string;
-  result: { task_id: string } | null;
-}
-
-/** 查询任务的响应 */
-export interface DocParserQueryResponse {
-  error_code: number;
-  error_msg: string;
-  log_id: string;
-  result: {
-    task_id: string;
-    status: 'pending' | 'processing' | 'success' | 'failed';
-    task_error: string | null;
-    duration?: number;
-    markdown_url?: string;
-    parse_result_url?: string;
-  } | null;
-}
-

@@ -42,7 +42,14 @@ const CLASSIFY_RULES: Array<{ test: (pt: string) => boolean; bucket: keyof Class
   { test: (pt) => pt.includes('信贷交易信息提示'), bucket: 'unclassified' },
   { test: (pt) => pt.includes('负债信息概要') || pt.includes('授信及负债'), bucket: 'unclassified' },
   { test: (pt) => pt.includes('查询记录概要'), bucket: 'unclassified' },
-  { test: (pt) => pt.includes('非循环贷账户') || pt.includes('循环贷账户'), bucket: 'creditAccount' },
+  {
+    test: (pt) =>
+      pt.includes('非循环贷账户') ||
+      pt.includes('循环贷账户') ||
+      pt.includes('贷记卡账户') ||
+      pt.includes('相关还款责任信息'),
+    bucket: 'creditAccount',
+  },
   { test: (pt) => /^账户/.test(pt), bucket: 'creditAccount' },
   { test: (pt) => /^授信协议/.test(pt), bucket: 'creditAgreement' },
   { test: (pt) => pt.includes('查询记录明细'), bucket: 'queryDetail' },
@@ -101,11 +108,21 @@ function matchContinuation(
 
 /** 按 headers 关键词兜底分类 */
 function matchByHeaders(ct: ContextTable): keyof ClassifiedTables | null {
-  const h = ct.table.headers.join(' ');
+  const h = [
+    ct.precedingText,
+    ...ct.table.headers,
+    ...ct.table.rows.slice(0, 4).flat(),
+  ].join(' ');
+  if (h.includes('身份信息') || (h.includes('性别') && h.includes('出生日期'))) return 'identity';
+  if (h.includes('配偶信息') || h.includes('配偶姓名')) return 'spouse';
+  if (h.includes('居住信息') || h.includes('居住地址')) return 'residence';
+  if (h.includes('职业信息') || h.includes('工作单位')) return 'job';
+  if (h.includes('查询日期') || h.includes('查询机构')) return 'queryDetail';
+  if (h.includes('授信协议标识') || h.includes('授信额度用途')) return 'creditAgreement';
+  if (h.includes('还款责任金额') || h.includes('责任人类型') || h.includes('主业务借款人')) return 'creditAccount';
   if (h.includes('发卡机构')) return 'creditAccount';
   if (h.includes('管理机构')) return 'creditAccount';
   if (h.includes('还款记录') || h.includes('还款状态')) return 'creditAccount';
-  if (h.includes('查询日期') || h.includes('查询机构')) return 'queryDetail';
   return null;
 }
 
@@ -117,4 +134,3 @@ function createEmptyBuckets(): ClassifiedTables {
     unclassified: [],
   };
 }
-

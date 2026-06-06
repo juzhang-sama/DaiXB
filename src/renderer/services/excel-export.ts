@@ -3,10 +3,12 @@ import type { CreditReport } from '../types/credit-report';
 import { buildCreditProfile } from './credit-profile-builder';
 import { assessCredit } from './credit-assessment';
 import { getAssessmentConfig } from './assessment-config-store';
+import { buildOcrReviewExportSummary } from './ocr-review-export';
+import type { OcrDiagnosticsReport, OcrReviewState } from '../types/ocr-diagnostics';
 
 type CellValue = string | number | boolean | null | undefined;
 
-interface WorkbookSheet {
+export interface WorkbookSheet {
   name: string;
   rows: CellValue[][];
 }
@@ -15,7 +17,20 @@ interface WorkbookSheet {
  * 将结构化的征信报告数据导出为 Excel 文件。
  * 这里直接生成最小 XLSX 包，避免引入存在已知漏洞的通用解析库。
  */
-export function exportCreditReportToExcel(report: CreditReport, fileName: string = '征信报告数据.xlsx') {
+export function exportCreditReportToExcel(
+  report: CreditReport,
+  fileName: string = '征信报告数据.xlsx',
+  reviewState?: OcrReviewState,
+  diagnostics?: OcrDiagnosticsReport,
+) {
+  downloadWorkbook(buildCreditReportWorkbookSheets(report, reviewState, diagnostics), fileName);
+}
+
+export function buildCreditReportWorkbookSheets(
+  report: CreditReport,
+  reviewState?: OcrReviewState,
+  diagnostics?: OcrDiagnosticsReport,
+): WorkbookSheet[] {
   const sheets: WorkbookSheet[] = [];
 
   appendSheet(sheets, '基本信息', [
@@ -174,7 +189,38 @@ export function exportCreditReportToExcel(report: CreditReport, fileName: string
     appendSheet(sheets, '字段溯源', provenanceRows);
   }
 
-  downloadWorkbook(sheets, fileName);
+  const reviewSummary = buildOcrReviewExportSummary(report, reviewState, diagnostics?.institutionCorrections);
+  appendSheet(sheets, 'OCR复核记录', [
+    ['生成时间', reviewSummary.generatedAt],
+    ['最近复核时间', reviewSummary.reviewedAt || ''],
+    ['需复核字段数', reviewSummary.totalReviewable],
+    ['已人工复核数', reviewSummary.reviewedCount],
+    ['未复核数', reviewSummary.pendingCount],
+    ['', ''],
+    ['级别', '类别', '字段', '复核状态', '问题', '建议'],
+    ...reviewSummary.rows.map((row) => [
+      row.severity,
+      row.category,
+      row.field,
+      row.status,
+      row.message,
+      row.suggestion,
+    ]),
+    ['', ''],
+    ['机构库匹配记录', ''],
+    ['字段', 'OCR原文', '输出/建议机构名', '状态', '置信度', '是否采用', '候选'],
+    ...reviewSummary.institutionRows.map((row) => [
+      row.field,
+      row.original,
+      row.normalized,
+      row.status,
+      row.confidence,
+      row.applied,
+      row.candidates,
+    ]),
+  ]);
+
+  return sheets;
 }
 
 function appendSheet(sheets: WorkbookSheet[], name: string, rows: CellValue[][]) {

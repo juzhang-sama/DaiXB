@@ -4,7 +4,7 @@
  * 因为 block-types.ts 用了 const enum（编译时内联），
  * 这里手动内联枚举值，直接复刻识别逻辑来验证。
  *
- * 用法: node scripts/verify-blocks.mjs
+ * 用法: node scripts/verify-blocks.mjs [full-text-file]
  */
 
 import { readFileSync } from 'fs';
@@ -148,7 +148,8 @@ function closeAccount(result, account, endLine) {
 }
 
 // ---- 执行验证 ----
-const text = readFileSync('D:\\DaiXB_project\\full text view.txt', 'utf-8');
+const inputFile = process.argv[2] ?? 'full text view.txt';
+const text = readFileSync(inputFile, 'utf-8');
 const lines = text.split('\n');
 console.log(`总行数: ${lines.length}\n`);
 
@@ -173,4 +174,3 @@ for (const acc of blockMap.accounts) {
   const first = lines[acc.range.startLine]?.trim().substring(0, 50);
   console.log(`[${acc.parentBlock.padEnd(22)}] ${acc.label.padEnd(15)} 行 ${String(acc.range.startLine).padStart(5)}-${String(acc.range.endLine).padStart(5)}  (${acc.range.endLine - acc.range.startLine + 1}行)  首:"${first}"`);
 }
-

@@ -52,6 +52,7 @@ const queryMarkdown = [
   '| 查询日期 | 查询机构 | 查询原因 |',
   '| --- | --- | --- |',
   '| 2026.05.01 | A银行 | 贷款审批 |',
+  '| 2026 04.02 | C银行 | 信用卡审批 |',
   '| 2026.04.01 | 本人 | 本人查询 |',
 ].join('\n');
 
@@ -64,5 +65,6 @@ const queryTable = {
   markdown: queryMarkdown,
 };
 const query = parseQueryRecords([queryTable], []);
-assert.equal(query.orgQueries.length, 1);
+assert.equal(query.orgQueries.length, 2);
 assert.equal(query.selfQueries.length, 1);
+assert.equal(query.orgQueries.some((item) => item.queryDate === '2026.04.02'), true);

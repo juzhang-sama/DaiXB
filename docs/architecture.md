@@ -18,7 +18,7 @@
 | PDF 解析 | pdfjs-dist 5.x |
 | OCR 服务 | TextIn 文档解析 API |
 | LLM 服务 | DeepSeek API |
-| 数据导出 | xlsx |
+| 数据导出 | 自生成 XLSX 文件（fflate 打包 OpenXML） |
 | 本地存储 | lowdb |
 
 ## 架构设计

@@ -1,27 +1,32 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { message, Button, Layout } from 'antd';
-import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, AppstoreOutlined, SettingOutlined } from '@ant-design/icons';
+import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, SettingOutlined } from '@ant-design/icons';
 import PdfViewer from './components/PdfViewer';
 import CreditReportTabs from './components/CreditReportTabs';
-import ProductDrawer from './components/ProductDrawer';
 import SetupModal from './components/SetupModal';
 import { CreditReport, createEmptyCreditReport } from './types/credit-report';
-import { analyzeCreditReport } from './services/ocr-service';
+import { analyzeCreditReportFiles } from './services/ocr-service';
+import { isImageFile } from './config/ocr-config';
 import { logError } from './utils/debug-log';
+import type { OcrQualityReport } from './parser/ocr-quality';
+import type { OcrDiagnosticsReport, OcrReviewState } from './types/ocr-diagnostics';
 
 const { Header, Content } = Layout;
 
 const App: React.FC = () => {
   const electronAvailable = typeof window.electron !== 'undefined';
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [report, setReport] = useState<CreditReport>(createEmptyCreditReport());
+  const [quality, setQuality] = useState<OcrQualityReport | undefined>();
+  const [diagnostics, setDiagnostics] = useState<OcrDiagnosticsReport | undefined>();
+  const [reviewState, setReviewState] = useState<OcrReviewState>({ reviewedIssueIds: [] });
   const [analyzing, setAnalyzing] = useState(false);
   const [activeView, setActiveView] = useState<'pdf' | 'report'>('pdf');
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [keysReady, setKeysReady] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const analyzeSeqRef = useRef(0);
 
   useEffect(() => {
     if (!electronAvailable) return;
@@ -45,7 +50,7 @@ const App: React.FC = () => {
     setExporting(true);
     try {
       const { exportCreditReportToExcel } = await import('./services/excel-export');
-      exportCreditReportToExcel(report, fileName);
+      exportCreditReportToExcel(report, fileName, reviewState, diagnostics);
       message.success('导出成功');
     } catch (err) {
       logError('[exportCreditReportToExcel] error:', err);
@@ -53,11 +58,27 @@ const App: React.FC = () => {
     } finally {
       setExporting(false);
     }
-  }, [exporting, report]);
+  }, [diagnostics, exporting, report, reviewState]);
 
-  const handleFileChange = useCallback(async (file: File | null) => {
-    setPdfFile(file);
-    if (!file) return;
+  const handleFilesChange = useCallback(async (files: File[], preferredPage = 1) => {
+    const nextFiles = files.filter(Boolean);
+    if (nextFiles.length > 1 && !nextFiles.every(isImageFile)) {
+      message.warning('多文件上传仅支持图片。PDF 请单独上传，图片可多张组成一套征信报告。');
+      return;
+    }
+
+    const seq = analyzeSeqRef.current + 1;
+    analyzeSeqRef.current = seq;
+    setDocumentFiles(nextFiles);
+    setCurrentPage(Math.max(1, Math.min(preferredPage, nextFiles.length || 1)));
+    setReviewState({ reviewedIssueIds: [] });
+
+    if (nextFiles.length === 0) {
+      setQuality(undefined);
+      setDiagnostics(undefined);
+      setAnalyzing(false);
+      return;
+    }
     if (!electronAvailable) {
       message.warning('请在 Electron 应用窗口中使用 OCR 解析功能');
       return;
@@ -67,16 +88,49 @@ const App: React.FC = () => {
     setActiveView('report');
 
     try {
-      const result = await analyzeCreditReport(file);
+      const result = await analyzeCreditReportFiles(nextFiles);
+      if (seq !== analyzeSeqRef.current) return;
       setReport(result.report);
-      message.success('解析完成');
+      setQuality(result.quality);
+      setDiagnostics(result.diagnostics);
+      if (result.quality?.issues.length) {
+        message.warning(`解析完成，存在 ${result.quality.issues.length} 项质量提示`);
+      } else {
+        message.success(nextFiles.length > 1 ? `已合并解析 ${nextFiles.length} 张图片` : '解析完成');
+      }
     } catch (err) {
-      logError('[analyzeCreditReport] error:', err);
-      message.error('解析失败，请手动填写');
+      if (seq !== analyzeSeqRef.current) return;
+      logError('[analyzeCreditReportFiles] error:', err);
+      message.error('解析失败，请核对文件后重试或手动填写');
     } finally {
-      setAnalyzing(false);
+      if (seq === analyzeSeqRef.current) {
+        setAnalyzing(false);
+      }
     }
   }, [electronAvailable]);
+
+  const handleReportChange = useCallback((nextReport: CreditReport) => {
+    setReport(nextReport);
+    setReviewState({ reviewedIssueIds: [] });
+  }, []);
+
+  const handleReviewIssues = useCallback((issueIds: string[]) => {
+    if (issueIds.length === 0) return;
+    setReviewState((prev) => {
+      const merged = new Set(prev.reviewedIssueIds);
+      issueIds.forEach((issueId) => merged.add(issueId));
+      return {
+        reviewedIssueIds: Array.from(merged),
+        reviewedAt: new Date().toISOString(),
+      };
+    });
+    message.success(issueIds.length === 1 ? '已标记为人工复核' : `已标记 ${issueIds.length} 项为人工复核`);
+  }, []);
+
+  const handleClearReview = useCallback(() => {
+    setReviewState({ reviewedIssueIds: [] });
+    message.info('已清除人工复核状态');
+  }, []);
 
   return (
     <Layout className="h-screen bg-gray-50">
@@ -94,7 +148,7 @@ const App: React.FC = () => {
             type={activeView === 'report' ? 'primary' : 'default'}
             icon={<FileTextOutlined />}
             onClick={() => setActiveView('report')}
-            disabled={!pdfFile && !report.header}
+            disabled={documentFiles.length === 0 && !report.header.reportNo}
           >
             结构化数据
           </Button>
@@ -105,12 +159,6 @@ const App: React.FC = () => {
             loading={exporting}
           >
             导出 Excel
-          </Button>
-          <Button
-            icon={<AppstoreOutlined />}
-            onClick={() => setDrawerOpen(true)}
-          >
-            产品库
           </Button>
           <Button
             icon={<SettingOutlined />}
@@ -129,8 +177,8 @@ const App: React.FC = () => {
           }`}
         >
           <PdfViewer
-            file={pdfFile}
-            onFileChange={handleFileChange}
+            files={documentFiles}
+            onFilesChange={handleFilesChange}
             currentPage={currentPage}
             onPageChange={setCurrentPage}
           />
@@ -142,12 +190,20 @@ const App: React.FC = () => {
           }`}
         >
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <CreditReportTabs report={report} loading={analyzing} onChange={setReport} />
+            <CreditReportTabs
+              report={report}
+              quality={quality}
+              diagnostics={diagnostics}
+              reviewState={reviewState}
+              loading={analyzing}
+              onChange={handleReportChange}
+              onReviewIssues={handleReviewIssues}
+              onClearReview={handleClearReview}
+            />
           </div>
         </div>
       </Content>
 
-      <ProductDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} report={report} />
       {electronAvailable && (
         <SetupModal
           open={setupOpen}
