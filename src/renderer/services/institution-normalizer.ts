@@ -1,5 +1,5 @@
 import { FINANCIAL_INSTITUTIONS } from '../data/financial-institutions';
-import type { CreditReport } from '../types/credit-report';
+import type { CreditReport, FieldProvenance } from '../types/credit-report';
 import type { InstitutionCorrectionDiagnostic } from '../types/ocr-diagnostics';
 
 interface InstitutionAlias {
@@ -38,6 +38,7 @@ export function normalizeInstitutionName(raw: string): InstitutionNormalizationR
   const original = (raw ?? '').trim();
   const cleaned = cleanInstitutionText(original);
   const comparable = normalizeComparableName(cleaned);
+  const uncertainOcr = hasUncertainOcrMarker(cleaned);
 
   if (!comparable) {
     return buildResult(original, cleaned, 0, false, false, 'unlisted', '该机构未被收录', 'none', []);
@@ -66,6 +67,21 @@ export function normalizeInstitutionName(raw: string): InstitutionNormalizationR
     }))
     .sort((a, b) => b.score - a.score);
   if (contains[0]?.score >= 0.72) {
+    const topScore = contains[0].score;
+    const closeCandidates = uniqueNames(contains.filter((item) => item.score >= topScore - 0.05));
+    if (uncertainOcr || closeCandidates.length > 1) {
+      return buildResult(
+        original,
+        contains[0].name,
+        round(0.88 + contains[0].score * 0.08),
+        false,
+        false,
+        'review',
+        '疑似机构，请复核',
+        'none',
+        uniqueNames(contains),
+      );
+    }
     return buildResult(
       original,
       contains[0].name,
@@ -89,7 +105,7 @@ export function normalizeInstitutionName(raw: string): InstitutionNormalizationR
 
   const best = fuzzy[0];
   const second = fuzzy.find((item) => item.name !== best?.name);
-  if (best && best.score >= 0.82 && (!second || best.score - second.score >= 0.05)) {
+  if (best && !uncertainOcr && best.score >= 0.82 && (!second || best.score - second.score >= 0.05)) {
     return buildResult(
       original,
       best.name,
@@ -126,11 +142,16 @@ export function normalizeCreditReportInstitutions(
   const corrections: InstitutionCorrectionDiagnostic[] = [];
   const normalize = (field: string, org: string): string => {
     const result = normalizeInstitutionName(org);
+    const source = findInstitutionSource(report, field);
     if (shouldRecordCorrection(result)) {
       corrections.push({
         field,
         original: result.original,
         normalized: result.normalized,
+        sourceLabel: source?.label,
+        pageNum: source?.pageNum,
+        logicalPage: source?.logicalPage,
+        precedingText: source?.precedingText,
         confidence: result.confidence,
         matched: result.matched,
         applied: result.applied,
@@ -188,6 +209,16 @@ export function normalizeCreditReportInstitutions(
   return { report: next, corrections };
 }
 
+function findInstitutionSource(report: CreditReport, field: string): FieldProvenance | undefined {
+  const provenance = report.provenance ?? {};
+  const listField = field.replace(/\[\d+\]\.[^.]+$/, '');
+  const parentField = listField.replace(/\.[^.]+$/, '');
+  return provenance[field] ??
+    provenance[listField] ??
+    provenance[parentField] ??
+    provenance[field.split('[')[0]];
+}
+
 function shouldRecordCorrection(result: InstitutionNormalizationResult): boolean {
   if (!result.original.trim()) return false;
   if (result.status === 'unlisted' || result.status === 'review') return true;
@@ -224,6 +255,10 @@ function cleanInstitutionText(raw: string): string {
     .split('\n')
     .map((line) => line.trim())
     .find((line) => /银行|消费金融|小额贷款|小贷|汽车金融|信用社|合作社/.test(line)) ?? raw.trim();
+}
+
+function hasUncertainOcrMarker(value: string): boolean {
+  return /[■□�]/.test(value);
 }
 
 function normalizeComparableName(value: string): string {

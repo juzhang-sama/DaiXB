@@ -72,6 +72,15 @@ function getInstitutionStatusLabel(item: InstitutionCorrectionDiagnostic): strin
   return '该机构未被收录';
 }
 
+function formatInstitutionSource(item: InstitutionCorrectionDiagnostic): string {
+  const parts: string[] = [];
+  if (item.sourceLabel) parts.push(item.sourceLabel);
+  if (item.pageNum !== undefined) parts.push(`物理页 ${item.pageNum + 1}`);
+  if (item.logicalPage !== undefined) parts.push(`征信页 ${item.logicalPage}`);
+  if (item.precedingText) parts.push(item.precedingText);
+  return parts.join(' / ') || '-';
+}
+
 const OcrQualityTab: React.FC<OcrQualityTabProps> = ({
   quality,
   diagnostics,
@@ -258,6 +267,7 @@ function renderDiagnostics(
     key: index,
     ...item,
     statusLabel: getInstitutionStatusLabel(item),
+    sourceText: formatInstitutionSource(item),
     candidatesText: item.candidates.join('、') || '-',
   }));
 
@@ -334,6 +344,7 @@ function renderDiagnostics(
         pagination={false}
         locale={{ emptyText: '暂无机构库匹配提示' }}
         columns={[
+          { title: '来源位置', dataIndex: 'sourceText', key: 'sourceText', width: 260 },
           { title: '字段', dataIndex: 'field', key: 'field', width: 260 },
           { title: 'OCR 原文', dataIndex: 'original', key: 'original', width: 180 },
           { title: '输出/建议机构名', dataIndex: 'normalized', key: 'normalized', width: 220 },

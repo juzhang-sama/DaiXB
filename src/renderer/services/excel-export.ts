@@ -208,8 +208,9 @@ export function buildCreditReportWorkbookSheets(
     ]),
     ['', ''],
     ['机构库匹配记录', ''],
-    ['字段', 'OCR原文', '输出/建议机构名', '状态', '置信度', '是否采用', '候选'],
+    ['来源位置', '字段', 'OCR原文', '输出/建议机构名', '状态', '置信度', '是否采用', '候选'],
     ...reviewSummary.institutionRows.map((row) => [
+      row.source,
       row.field,
       row.original,
       row.normalized,

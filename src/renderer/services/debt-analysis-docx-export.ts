@@ -187,8 +187,9 @@ function buildOcrReviewBody(summary: OcrReviewExportSummary, sectionNo: string):
   if (summary.institutionRows.length > 0) {
     body.push(paragraph('机构库匹配记录', { style: 'Heading2' }));
     body.push(table([
-      ['字段', 'OCR原文', '输出/建议机构名', '状态', '置信度', '是否采用', '候选'],
+      ['来源位置', '字段', 'OCR原文', '输出/建议机构名', '状态', '置信度', '是否采用', '候选'],
       ...summary.institutionRows.map((row) => [
+        row.source,
         row.field,
         row.original,
         row.normalized,

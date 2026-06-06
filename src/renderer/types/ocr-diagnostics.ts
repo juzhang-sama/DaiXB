@@ -45,6 +45,10 @@ export interface InstitutionCorrectionDiagnostic {
   field: string;
   original: string;
   normalized: string;
+  sourceLabel?: string;
+  pageNum?: number;
+  logicalPage?: number;
+  precedingText?: string;
   confidence: number;
   matched: boolean;
   applied: boolean;

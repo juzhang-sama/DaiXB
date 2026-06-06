@@ -27,6 +27,7 @@ export interface OcrReviewExportSummary {
 }
 
 export interface InstitutionMatchExportRow {
+  source: string;
   field: string;
   original: string;
   normalized: string;
@@ -81,6 +82,7 @@ function buildReviewStatus(reviewed: boolean): OcrReviewExportRow['status'] {
 
 function buildInstitutionRow(item: InstitutionCorrectionDiagnostic): InstitutionMatchExportRow {
   return {
+    source: formatInstitutionSource(item),
     field: item.field,
     original: item.original,
     normalized: item.normalized,
@@ -89,6 +91,15 @@ function buildInstitutionRow(item: InstitutionCorrectionDiagnostic): Institution
     applied: item.applied ? '已采用标准机构名' : '原文保留',
     candidates: item.candidates.join('、'),
   };
+}
+
+function formatInstitutionSource(item: InstitutionCorrectionDiagnostic): string {
+  const parts: string[] = [];
+  if (item.sourceLabel) parts.push(item.sourceLabel);
+  if (item.pageNum !== undefined) parts.push(`物理页${item.pageNum + 1}`);
+  if (item.logicalPage !== undefined) parts.push(`征信页${item.logicalPage}`);
+  if (item.precedingText) parts.push(item.precedingText);
+  return parts.join(' / ');
 }
 
 function formatInstitutionStatus(item: InstitutionCorrectionDiagnostic): string {

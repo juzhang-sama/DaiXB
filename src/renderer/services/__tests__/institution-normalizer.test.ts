@@ -105,3 +105,37 @@ reportWithUnknown.creditDetail.creditCards = [
 const unknownNormalized = normalizeCreditReportInstitutions(reportWithUnknown);
 assert.equal(unknownNormalized.report.creditDetail.creditCards[0].org, '某某测试机构');
 assert.equal(unknownNormalized.corrections[0].status, 'unlisted');
+
+const uncertainBank = normalizeInstitutionName('■京银行股份有限公司');
+assert.equal(uncertainBank.matched, false);
+assert.equal(uncertainBank.applied, false);
+assert.equal(uncertainBank.status, 'review');
+assert.equal(uncertainBank.normalized, '北京银行股份有限公司');
+assert.equal(uncertainBank.candidates.includes('北京银行股份有限公司'), true);
+assert.equal(uncertainBank.candidates.includes('南京银行股份有限公司'), true);
+
+const reportWithSource = createEmptyCreditReport();
+reportWithSource.creditDetail.revolvingLoansType2 = [
+  makeRevolvingLoan({ org: '■京银行股份有限公司' }),
+];
+reportWithSource.provenance = {
+  'creditDetail.revolvingLoansType2[0].org': {
+    field: 'creditDetail.revolvingLoansType2[0].org',
+    label: '循环贷账户二第1笔机构',
+    source: 'doc-table',
+    pageNum: 5,
+    logicalPage: 12,
+    precedingText: '账户7（授信协议标识：D20022210S0001）',
+    confidence: 0.85,
+  },
+};
+const sourceNormalized = normalizeCreditReportInstitutions(reportWithSource);
+assert.equal(sourceNormalized.report.creditDetail.revolvingLoansType2[0].org, '■京银行股份有限公司');
+assert.equal(sourceNormalized.corrections.length, 1);
+assert.equal(sourceNormalized.corrections[0].field, 'creditDetail.revolvingLoansType2[0].org');
+assert.equal(sourceNormalized.corrections[0].status, 'review');
+assert.equal(sourceNormalized.corrections[0].applied, false);
+assert.equal(sourceNormalized.corrections[0].sourceLabel, '循环贷账户二第1笔机构');
+assert.equal(sourceNormalized.corrections[0].pageNum, 5);
+assert.equal(sourceNormalized.corrections[0].logicalPage, 12);
+assert.equal(sourceNormalized.corrections[0].precedingText, '账户7（授信协议标识：D20022210S0001）');

@@ -13,6 +13,7 @@ import { evaluateImageQuality } from './image-quality';
 import { validateCreditReportData } from './credit-report-validation';
 import { normalizeCreditReportInstitutions } from './institution-normalizer';
 import { pdfToImages } from './pdf-to-image';
+import type { CreditReport } from '../types/credit-report';
 import type {
   ImageQualityDiagnostic,
   InstitutionCorrectionDiagnostic,
@@ -20,6 +21,29 @@ import type {
   OcrDiagnosticsReport,
 } from '../types/ocr-diagnostics';
 import * as pdfjsLib from 'pdfjs-dist';
+
+const PDF_TEXT_MIN_REPORT_SIGNALS = 3;
+const CREDIT_REPORT_TEXT_SIGNALS = [
+  '\u4e2a\u4eba\u4fe1\u7528\u62a5\u544a',
+  '\u62a5\u544a\u7f16\u53f7',
+  '\u62a5\u544a\u65f6\u95f4',
+  '\u672c\u4eba\u7248',
+  '\u4e2a\u4eba\u57fa\u672c\u4fe1\u606f',
+  '\u4fe1\u606f\u6982\u8981',
+  '\u4fe1\u8d37\u4ea4\u6613\u4fe1\u606f\u660e\u7ec6',
+  '\u67e5\u8be2\u8bb0\u5f55',
+  '\u7ba1\u7406\u673a\u6784',
+  '\u53d1\u5361\u673a\u6784',
+  '\u8d26\u6237',
+];
+const CREDIT_DETAIL_TEXT_SIGNALS = [
+  '\u4fe1\u8d37\u4ea4\u6613\u4fe1\u606f\u660e\u7ec6',
+  '\u975e\u5faa\u73af\u8d37\u8d26\u6237',
+  '\u5faa\u73af\u8d37\u8d26\u6237',
+  '\u8d37\u8bb0\u5361\u8d26\u6237',
+  '\u76f8\u5173\u8fd8\u6b3e\u8d23\u4efb',
+  '\u6388\u4fe1\u534f\u8bae',
+];
 
 interface OcrDocumentResult {
   docResult: DocParserResult;
@@ -161,6 +185,63 @@ function logQuality(quality: ReturnType<typeof evaluateOcrQuality> | undefined):
   }));
 }
 
+function shouldFallbackPdfTextLayer(
+  fullText: string,
+  report: CreditReport,
+  validation: ReturnType<typeof validateCreditReportData>,
+): boolean {
+  const normalized = normalizePdfTextSignal(fullText);
+  const signalCount = countPdfTextSignals(normalized, CREDIT_REPORT_TEXT_SIGNALS);
+  const hasCreditDetailSignal = CREDIT_DETAIL_TEXT_SIGNALS.some((signal) => normalized.includes(signal));
+  const detailCount = countReportDetailItems(report);
+
+  if (signalCount === 0) return true;
+  if (signalCount < PDF_TEXT_MIN_REPORT_SIGNALS && !hasParsedReportData(report)) return true;
+  if (hasCreditDetailSignal && detailCount === 0) return true;
+  if (validation.summary.critical > 0 && signalCount < PDF_TEXT_MIN_REPORT_SIGNALS + 1) return true;
+  return validation.requiresReview && detailCount === 0 && !hasParsedReportData(report);
+}
+
+function countPdfTextSignals(text: string, signals: string[]): number {
+  return signals.reduce((count, signal) => count + (text.includes(signal) ? 1 : 0), 0);
+}
+
+function hasParsedReportData(report: CreditReport): boolean {
+  const headerFields = [
+    report.header.name,
+    report.header.reportNo,
+    report.header.reportTime,
+    report.header.certNo,
+  ].filter(Boolean).length;
+  return headerFields >= 2 ||
+    countReportDetailItems(report) > 0 ||
+    countQueryRecords(report) > 0 ||
+    hasDerivedAccountCounts(report);
+}
+
+function countReportDetailItems(report: CreditReport): number {
+  return report.creditDetail.nonRevolvingLoans.length +
+    report.creditDetail.revolvingLoansType1.length +
+    report.creditDetail.revolvingLoansType2.length +
+    report.creditDetail.creditCards.length +
+    report.creditDetail.quasiCreditCards.length +
+    report.repayResponsibilities.length +
+    report.creditAgreements.length +
+    report.accountBriefs.length;
+}
+
+function countQueryRecords(report: CreditReport): number {
+  return report.queryRecord.orgQueries.length + report.queryRecord.selfQueries.length;
+}
+
+function hasDerivedAccountCounts(report: CreditReport): boolean {
+  return Object.values(report.accountDerived).some((summary) => (summary?.accountCount ?? 0) > 0);
+}
+
+function normalizePdfTextSignal(text: string): string {
+  return text.replace(/[\s\u3000]/g, '');
+}
+
 /**
  * 解析征信报告（自动选择路径）
  * 路径 A：电子版 PDF → 文本直提 → 解析引擎
@@ -206,16 +287,34 @@ async function analyzeSingleCreditReport(file: File): Promise<OcrResult> {
     fullText = correctOcrText(fullText);
   } else {
     // PDF → 先尝试文本直提，不足则走 OCR
-    fullText = await extractTextFromPdf(file);
-    const isScanned = fullText.trim().length < MIN_TEXT_LENGTH;
-
-    if (isScanned) {
-      debugLog('[DocParser] scanned pdf detected, using document parser...');
+    const usePdfOcrFallback = async (reason: string, err?: unknown) => {
+      debugLog(`[DocParser] ${reason}, using document parser...`, err ?? '');
       const result = await analyzeScannedPdfViaOcrCandidates(file);
       docResult = result.docResult;
       candidateDiagnostics = result.candidates;
       fullText = extractTextFromDocParser(docResult);
       fullText = correctOcrText(fullText);
+    };
+
+    try {
+      fullText = await extractTextFromPdf(file);
+    } catch (err) {
+      await usePdfOcrFallback('pdf text extraction failed', err);
+    }
+
+    if (!docResult) {
+      const isScanned = fullText.trim().length < MIN_TEXT_LENGTH;
+
+      if (isScanned) {
+        await usePdfOcrFallback('scanned or empty pdf text layer detected');
+      } else {
+        const textParsed = parseCreditReport(fullText);
+        const { report: textReport } = normalizeCreditReportInstitutions(textParsed.report);
+        const validation = validateCreditReportData(textReport);
+        if (shouldFallbackPdfTextLayer(fullText, textReport, validation)) {
+          await usePdfOcrFallback('weak pdf text layer detected');
+        }
+      }
     }
   }
 

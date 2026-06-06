@@ -61,6 +61,10 @@ assert.equal(reviewedSummary.rows.find((row) => row.id === reviewedRow.id)?.stat
 const institutionSummary = buildOcrReviewExportSummary(report, undefined, [
   {
     field: 'creditDetail.creditCards[0].org',
+    sourceLabel: '贷记卡账户第1笔机构',
+    pageNum: 2,
+    logicalPage: 5,
+    precedingText: '账户1',
     original: '广發银行股份有限公司',
     normalized: '广发银行股份有限公司',
     confidence: 0.91,
@@ -85,6 +89,7 @@ const institutionSummary = buildOcrReviewExportSummary(report, undefined, [
   },
 ]);
 assert.equal(institutionSummary.institutionRows.length, 2);
+assert.equal(institutionSummary.institutionRows[0].source, '贷记卡账户第1笔机构 / 物理页3 / 征信页5 / 账户1');
 assert.equal(institutionSummary.institutionRows[0].status, '经机构库模糊匹配');
 assert.equal(institutionSummary.institutionRows[0].applied, '已采用标准机构名');
 assert.equal(institutionSummary.institutionRows[1].status, '该机构未被收录');

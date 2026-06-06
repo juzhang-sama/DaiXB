@@ -1,6 +1,6 @@
-# 保留但未接入主链路的模块
+# 历史模块与辅助链路状态
 
-以下模块目前没有被 `App.tsx` 或核心解析链路引用，先归档说明，不直接删除，避免误删仍有参考价值的实现。
+以下内容用于区分“确实未接入主界面”“仍在当前 OCR/解析链路中使用”和“仅作为兼容回退保留”的模块，避免后续清理时误删仍被调用的路径。
 
 ## UI 旧组件
 
@@ -9,16 +9,24 @@
 - `src/renderer/components/tabs/AccountDetailTab.tsx`：早期账户简表 Tab，当前账户展示集中在 `CreditDetailTab`。
 - `src/renderer/components/tabs/OverdueTab.tsx`：早期逾期/负债概览 Tab，当前由 `CreditAssessmentTab` 和账户明细承担。
 
-## 旧 OCR/解析路径
+## 当前仍在使用的 OCR 辅助路径
 
-- `src/renderer/services/pdf-to-image.ts`：PDF 转图片的旧 OCR 输入路径。
-- `src/renderer/services/image-preprocess.ts`：Canvas 图像预处理路径，当前 TextIn 文档解析直接处理 PDF/图片。
+- `src/renderer/services/pdf-to-image.ts`：扫描版 PDF 的 TextIn 原始解析质量不足时，`ocr-service.ts` 会将 PDF 逐页渲染成图片再调用 TextIn，比选“原始 PDF OCR”和“逐页渲染 OCR”的结构质量。
+- `src/renderer/services/image-preprocess.ts`：图片 OCR 或逐页渲染 OCR 的结构质量不足时，`ocr-service.ts` 会生成增强对比、轻二值化、自适应二值化候选图，再按 OCR 质量分选择最佳结果。
+
+这两个模块不是废弃路径，而是当前 OCR 候选增强链路的一部分。
+
+## 兼容回退路径
+
+- `src/renderer/parser/table-rebuilder.ts`、`src/renderer/parser/table-lookup.ts`：旧坐标重建表格路径。当前主力是 `DocParserResult -> ContextTable[]`，但 `parser/index.ts`、`summary-from-accounts.ts`、`account-overdue-parser.ts` 仍保留 `RebuiltTable` 兼容参数和工具引用。清理前需要先确认旧 `RebuiltTable` 入参不再被任何外部入口使用。
+
+## 暂未接入主链路的旧实验路径
+
 - `src/renderer/services/llm-ocr-corrector.ts`：LLM OCR 纠错实验路径，当前默认只使用词典校正。
 - `src/renderer/parser/section-splitter.ts`、`extract-utils.ts`、`extractors/`、`cross-validator.ts`：早期纯文本正则解析和交叉验证工具。
-- `src/renderer/parser/table-rebuilder.ts`、`table-lookup.ts`：旧坐标重建表格路径，当前主力是 `DocParserResult -> ContextTable[]`。
 
 ## 清理建议
 
-1. 先保留一个版本周期，确认真实样本解析、导出、产品匹配都不再依赖这些模块。
-2. 若继续保留，需要补单元测试并明确入口。
-3. 若删除，应同步清理文档中的历史描述，避免误导后续维护。
+1. 不要删除 `pdf-to-image.ts` 和 `image-preprocess.ts`，除非同时移除 `ocr-service.ts` 中的 OCR 候选增强逻辑。
+2. 若清理 `table-rebuilder.ts` / `table-lookup.ts`，先移除 `parseCreditReport(fullText, table, docResult)` 的旧 `table` 参数和所有 `RebuiltTable` 兼容分支。
+3. UI 旧组件和旧实验路径可继续保留一个版本周期；若决定删除，应同步清理文档、测试和导入引用。

@@ -28,9 +28,35 @@ export function buildReportProvenance(
     addDerived(result, 'accountDerived.revolvingLoan1', '循环贷一汇总反算', accountGroups.revolvingLoan1[0]);
     addDerived(result, 'accountDerived.revolvingLoan2', '循环贷二汇总反算', accountGroups.revolvingLoan2[0]);
     addDerived(result, 'accountDerived.creditCard', '贷记卡汇总反算', accountGroups.creditCard[0]);
+    addAccountSources(result, 'creditDetail.nonRevolvingLoans', '非循环贷账户', accountGroups.nonRevolvingLoan);
+    addAccountSources(result, 'creditDetail.revolvingLoansType1', '循环贷账户一', accountGroups.revolvingLoan1);
+    addAccountSources(result, 'creditDetail.revolvingLoansType2', '循环贷账户二', accountGroups.revolvingLoan2);
+    addAccountSources(result, 'creditDetail.creditCards', '贷记卡账户', accountGroups.creditCard);
+    addAccountSources(result, 'repayResponsibilities', '相关还款责任', accountGroups.repayResponsibility);
+    addAccountSources(result, 'creditAgreements', '授信协议', accountGroups.creditAgreement);
   }
 
   return result;
+}
+
+function addAccountSources(
+  result: Record<string, FieldProvenance>,
+  listField: string,
+  label: string,
+  tables: ContextTable[],
+): void {
+  const sourceTables = tables.filter(isAccountSourceTable);
+  sourceTables.forEach((table, index) => {
+    addFromTable(result, `${listField}[${index}].org`, `${label}第${index + 1}笔机构`, table);
+  });
+}
+
+function isAccountSourceTable(table: ContextTable): boolean {
+  const headers = table.table.headers.join(' ');
+  return headers.includes('管理机构') ||
+    headers.includes('发卡机构') ||
+    headers.includes('还款责任金额') ||
+    headers.includes('授信协议标识');
 }
 
 function addFromTable(

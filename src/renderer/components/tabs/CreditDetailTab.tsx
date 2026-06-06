@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tabs, Table, Alert, Tag } from 'antd';
+import { Tabs, Table, Alert } from 'antd';
 import type { CreditReport } from '../../types/credit-report';
 import EditableCell from '../EditableCell';
 
@@ -25,11 +25,6 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
     creditCard: accountDerived.creditCard?.accountCount ?? creditDetail.creditCards.length,
   };
 
-  const renderStatus = (status: string) => {
-    const color = status === '正常' ? 'green' : status === '结清' ? 'default' : 'orange';
-    return <Tag color={color}>{status}</Tag>;
-  };
-
   const STATUS_FILTERS = [
     { text: '正常', value: '正常' },
     { text: '结清', value: '结清' },
@@ -40,50 +35,55 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
     { text: '止付', value: '止付' },
   ];
 
-  const statusColumn = {
-    title: '账户状态', dataIndex: 'status', key: 'status', width: 80,
-    render: renderStatus,
+  const editableStatusColumn = (updater: (i: number, f: string, v: string | number | null) => void) => ({
+    title: '账户状态',
+    dataIndex: 'status',
+    key: 'status',
+    width: 100,
+    render: (v: string, _rec: any, idx: number) => (
+      <EditableCell value={v} onChange={(nv) => updater(idx, 'status', String(nv))} />
+    ),
     filters: STATUS_FILTERS,
     onFilter: (value: any, record: any) => record.status === value,
-  };
+  });
 
   /** 更新非循环贷某行某字段 */
-  const updateNrl = (idx: number, field: string, val: number | null) => {
+  const updateNrl = (idx: number, field: string, val: string | number | null) => {
     const list = [...creditDetail.nonRevolvingLoans];
     list[idx] = { ...list[idx], [field]: val };
     onChange({ ...report, creditDetail: { ...creditDetail, nonRevolvingLoans: list } });
   };
 
   /** 更新循环贷一某行某字段 */
-  const updateRl1 = (idx: number, field: string, val: number | null) => {
+  const updateRl1 = (idx: number, field: string, val: string | number | null) => {
     const list = [...creditDetail.revolvingLoansType1];
     list[idx] = { ...list[idx], [field]: val };
     onChange({ ...report, creditDetail: { ...creditDetail, revolvingLoansType1: list } });
   };
 
   /** 更新循环贷二某行某字段 */
-  const updateRl2 = (idx: number, field: string, val: number | null) => {
+  const updateRl2 = (idx: number, field: string, val: string | number | null) => {
     const list = [...creditDetail.revolvingLoansType2];
     list[idx] = { ...list[idx], [field]: val };
     onChange({ ...report, creditDetail: { ...creditDetail, revolvingLoansType2: list } });
   };
 
   /** 更新贷记卡某行某字段 */
-  const updateCard = (idx: number, field: string, val: number | null) => {
+  const updateCard = (idx: number, field: string, val: string | number | null) => {
     const list = [...creditDetail.creditCards];
     list[idx] = { ...list[idx], [field]: val };
     onChange({ ...report, creditDetail: { ...creditDetail, creditCards: list } });
   };
 
   /** 更新还款责任某行某字段 */
-  const updateRepay = (idx: number, field: string, val: number | null) => {
+  const updateRepay = (idx: number, field: string, val: string | number | null) => {
     const list = [...repayResponsibilities];
     list[idx] = { ...list[idx], [field]: val };
     onChange({ ...report, repayResponsibilities: list });
   };
 
   /** 更新授信协议某行某字段 */
-  const updateAgreement = (idx: number, field: string, val: number | null) => {
+  const updateAgreement = (idx: number, field: string, val: string | number | null) => {
     const list = [...creditAgreements];
     list[idx] = { ...list[idx], [field]: val };
     onChange({ ...report, creditAgreements: list });
@@ -98,6 +98,14 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
       />
     );
 
+  const editableText = (field: string, updater: (i: number, f: string, v: string | number | null) => void) =>
+    (v: string | number | null, _rec: any, idx: number) => (
+      <EditableCell
+        value={v ?? ''}
+        onChange={(nv) => updater(idx, field, String(nv))}
+      />
+    );
+
   const items = [
     {
       key: 'nonRevolvingLoan',
@@ -108,19 +116,19 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
           <Table
             dataSource={creditDetail.nonRevolvingLoans.map((a, i) => ({ ...a, key: i }))}
             columns={[
-              { title: '管理机构', dataIndex: 'org', key: 'org', width: 180, fixed: 'left' as const },
+              { title: '管理机构', dataIndex: 'org', key: 'org', width: 180, fixed: 'left' as const, render: editableText('org', updateNrl) },
               { title: '借款金额', dataIndex: 'loanAmount', key: 'loanAmount', width: 90, render: editableNum('loanAmount', updateNrl) },
-              { title: '业务种类', dataIndex: 'businessType', key: 'businessType', width: 130 },
-              { title: '担保方式', dataIndex: 'guaranteeType', key: 'guaranteeType', width: 100 },
-              { title: '还款期数', dataIndex: 'termCount', key: 'termCount', width: 80 },
-              { title: '还款方式', dataIndex: 'repayMethod', key: 'repayMethod', width: 110 },
-              statusColumn,
+              { title: '业务种类', dataIndex: 'businessType', key: 'businessType', width: 130, render: editableText('businessType', updateNrl) },
+              { title: '担保方式', dataIndex: 'guaranteeType', key: 'guaranteeType', width: 100, render: editableText('guaranteeType', updateNrl) },
+              { title: '还款期数', dataIndex: 'termCount', key: 'termCount', width: 80, render: editableNum('termCount', updateNrl) },
+              { title: '还款方式', dataIndex: 'repayMethod', key: 'repayMethod', width: 110, render: editableText('repayMethod', updateNrl) },
+              editableStatusColumn(updateNrl),
               { title: '余额', dataIndex: 'balance', key: 'balance', width: 90, render: editableNum('balance', updateNrl) },
-              { title: '剩余期数', dataIndex: 'remainTerms', key: 'remainTerms', width: 80, render: (v: number | null) => v ?? '-' },
+              { title: '剩余期数', dataIndex: 'remainTerms', key: 'remainTerms', width: 80, render: editableNum('remainTerms', updateNrl) },
               { title: '本月应还', dataIndex: 'monthlyPayment', key: 'monthlyPayment', width: 90, render: editableNum('monthlyPayment', updateNrl) },
-              { title: '应还款日', dataIndex: 'paymentDueDate', key: 'paymentDueDate', width: 100, render: (v: string | null) => v ?? '-' },
+              { title: '应还款日', dataIndex: 'paymentDueDate', key: 'paymentDueDate', width: 100, render: editableText('paymentDueDate', updateNrl) },
               { title: '本月实还', dataIndex: 'actualPayment', key: 'actualPayment', width: 90, render: editableNum('actualPayment', updateNrl) },
-              { title: '逾期期数', dataIndex: 'currentOverdueCount', key: 'currentOverdueCount', width: 80, render: (v: number | null) => v ?? '-' },
+              { title: '逾期期数', dataIndex: 'currentOverdueCount', key: 'currentOverdueCount', width: 80, render: editableNum('currentOverdueCount', updateNrl) },
               { title: '逾期总额', dataIndex: 'currentOverdueAmount', key: 'currentOverdueAmount', width: 90, render: editableNum('currentOverdueAmount', updateNrl) },
             ]}
             size="small"
@@ -141,19 +149,19 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
           <Table
             dataSource={creditDetail.revolvingLoansType1.map((a, i) => ({ ...a, key: i }))}
             columns={[
-              { title: '管理机构', dataIndex: 'org', key: 'org', width: 180, fixed: 'left' as const },
+              { title: '管理机构', dataIndex: 'org', key: 'org', width: 180, fixed: 'left' as const, render: editableText('org', updateRl1) },
               { title: '借款金额', dataIndex: 'loanAmount', key: 'loanAmount', width: 90, render: editableNum('loanAmount', updateRl1) },
-              { title: '业务种类', dataIndex: 'businessType', key: 'businessType', width: 130 },
-              { title: '担保方式', dataIndex: 'guaranteeType', key: 'guaranteeType', width: 100 },
-              { title: '还款期数', dataIndex: 'termCount', key: 'termCount', width: 80 },
-              { title: '还款方式', dataIndex: 'repayMethod', key: 'repayMethod', width: 110 },
-              statusColumn,
+              { title: '业务种类', dataIndex: 'businessType', key: 'businessType', width: 130, render: editableText('businessType', updateRl1) },
+              { title: '担保方式', dataIndex: 'guaranteeType', key: 'guaranteeType', width: 100, render: editableText('guaranteeType', updateRl1) },
+              { title: '还款期数', dataIndex: 'termCount', key: 'termCount', width: 80, render: editableNum('termCount', updateRl1) },
+              { title: '还款方式', dataIndex: 'repayMethod', key: 'repayMethod', width: 110, render: editableText('repayMethod', updateRl1) },
+              editableStatusColumn(updateRl1),
               { title: '余额', dataIndex: 'balance', key: 'balance', width: 90, render: editableNum('balance', updateRl1) },
-              { title: '剩余期数', dataIndex: 'remainTerms', key: 'remainTerms', width: 80, render: (v: number | null) => v ?? '-' },
+              { title: '剩余期数', dataIndex: 'remainTerms', key: 'remainTerms', width: 80, render: editableNum('remainTerms', updateRl1) },
               { title: '本月应还', dataIndex: 'monthlyPayment', key: 'monthlyPayment', width: 90, render: editableNum('monthlyPayment', updateRl1) },
-              { title: '应还款日', dataIndex: 'paymentDueDate', key: 'paymentDueDate', width: 100, render: (v: string | null) => v ?? '-' },
+              { title: '应还款日', dataIndex: 'paymentDueDate', key: 'paymentDueDate', width: 100, render: editableText('paymentDueDate', updateRl1) },
               { title: '本月实还', dataIndex: 'actualPayment', key: 'actualPayment', width: 90, render: editableNum('actualPayment', updateRl1) },
-              { title: '逾期期数', dataIndex: 'currentOverdueCount', key: 'currentOverdueCount', width: 80, render: (v: number | null) => v ?? '-' },
+              { title: '逾期期数', dataIndex: 'currentOverdueCount', key: 'currentOverdueCount', width: 80, render: editableNum('currentOverdueCount', updateRl1) },
               { title: '逾期总额', dataIndex: 'currentOverdueAmount', key: 'currentOverdueAmount', width: 90, render: editableNum('currentOverdueAmount', updateRl1) },
             ]}
             size="small"
@@ -174,19 +182,19 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
           <Table
             dataSource={creditDetail.revolvingLoansType2.map((a, i) => ({ ...a, key: i }))}
             columns={[
-              { title: '管理机构', dataIndex: 'org', key: 'org', width: 180, fixed: 'left' as const },
+              { title: '管理机构', dataIndex: 'org', key: 'org', width: 180, fixed: 'left' as const, render: editableText('org', updateRl2) },
               { title: '授信额度', dataIndex: 'creditLimit', key: 'creditLimit', width: 90, render: editableNum('creditLimit', updateRl2) },
-              { title: '业务种类', dataIndex: 'businessType', key: 'businessType', width: 130 },
-              { title: '担保方式', dataIndex: 'guaranteeType', key: 'guaranteeType', width: 100 },
-              { title: '还款期数', dataIndex: 'termCount', key: 'termCount', width: 80 },
-              { title: '还款方式', dataIndex: 'repayMethod', key: 'repayMethod', width: 110 },
-              statusColumn,
+              { title: '业务种类', dataIndex: 'businessType', key: 'businessType', width: 130, render: editableText('businessType', updateRl2) },
+              { title: '担保方式', dataIndex: 'guaranteeType', key: 'guaranteeType', width: 100, render: editableText('guaranteeType', updateRl2) },
+              { title: '还款期数', dataIndex: 'termCount', key: 'termCount', width: 80, render: editableNum('termCount', updateRl2) },
+              { title: '还款方式', dataIndex: 'repayMethod', key: 'repayMethod', width: 110, render: editableText('repayMethod', updateRl2) },
+              editableStatusColumn(updateRl2),
               { title: '余额', dataIndex: 'balance', key: 'balance', width: 90, render: editableNum('balance', updateRl2) },
-              { title: '剩余期数', dataIndex: 'remainTerms', key: 'remainTerms', width: 80, render: (v: number | null) => v ?? '-' },
+              { title: '剩余期数', dataIndex: 'remainTerms', key: 'remainTerms', width: 80, render: editableNum('remainTerms', updateRl2) },
               { title: '本月应还', dataIndex: 'monthlyPayment', key: 'monthlyPayment', width: 90, render: editableNum('monthlyPayment', updateRl2) },
-              { title: '应还款日', dataIndex: 'paymentDueDate', key: 'paymentDueDate', width: 100, render: (v: string | null) => v ?? '-' },
+              { title: '应还款日', dataIndex: 'paymentDueDate', key: 'paymentDueDate', width: 100, render: editableText('paymentDueDate', updateRl2) },
               { title: '本月实还', dataIndex: 'actualPayment', key: 'actualPayment', width: 90, render: editableNum('actualPayment', updateRl2) },
-              { title: '逾期期数', dataIndex: 'currentOverdueCount', key: 'currentOverdueCount', width: 80, render: (v: number | null) => v ?? '-' },
+              { title: '逾期期数', dataIndex: 'currentOverdueCount', key: 'currentOverdueCount', width: 80, render: editableNum('currentOverdueCount', updateRl2) },
               { title: '逾期总额', dataIndex: 'currentOverdueAmount', key: 'currentOverdueAmount', width: 90, render: editableNum('currentOverdueAmount', updateRl2) },
             ]}
             size="small"
@@ -207,9 +215,9 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
           <Table
             dataSource={creditDetail.creditCards.map((a, i) => ({ ...a, key: i }))}
             columns={[
-              { title: '发卡机构', dataIndex: 'org', key: 'org', width: 220, fixed: 'left' as const },
+              { title: '发卡机构', dataIndex: 'org', key: 'org', width: 220, fixed: 'left' as const, render: editableText('org', updateCard) },
               { title: '账户授信额度', dataIndex: 'creditLimit', key: 'creditLimit', width: 120, render: editableNum('creditLimit', updateCard) },
-              statusColumn,
+              editableStatusColumn(updateCard),
               { title: '已用额度', dataIndex: 'usedAmount', key: 'usedAmount', width: 120, render: editableNum('usedAmount', updateCard) },
             ]}
             size="small"
@@ -230,10 +238,10 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
           <Table
             dataSource={repayResponsibilities.map((r, i) => ({ ...r, key: i }))}
             columns={[
-              { title: '管理机构', dataIndex: 'org', key: 'org', width: 220, fixed: 'left' as const },
-              { title: '责任人类型', dataIndex: 'responsibilityType', key: 'responsibilityType', width: 100 },
+              { title: '管理机构', dataIndex: 'org', key: 'org', width: 220, fixed: 'left' as const, render: editableText('org', updateRepay) },
+              { title: '责任人类型', dataIndex: 'responsibilityType', key: 'responsibilityType', width: 100, render: editableText('responsibilityType', updateRepay) },
               { title: '还款责任金额', dataIndex: 'responsibilityAmount', key: 'responsibilityAmount', width: 120, render: editableNum('responsibilityAmount', updateRepay) },
-              { title: '主业务借款人', dataIndex: 'borrowerName', key: 'borrowerName', width: 120 },
+              { title: '主业务借款人', dataIndex: 'borrowerName', key: 'borrowerName', width: 120, render: editableText('borrowerName', updateRepay) },
               { title: '余额', dataIndex: 'balance', key: 'balance', width: 120, render: editableNum('balance', updateRepay) },
             ]}
             size="small"
@@ -254,8 +262,8 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
           <Table
             dataSource={creditAgreements.map((a, i) => ({ ...a, key: i }))}
             columns={[
-              { title: '管理机构', dataIndex: 'org', key: 'org', width: 240, fixed: 'left' as const },
-              { title: '授信额度用途', dataIndex: 'creditPurpose', key: 'creditPurpose', width: 140 },
+              { title: '管理机构', dataIndex: 'org', key: 'org', width: 240, fixed: 'left' as const, render: editableText('org', updateAgreement) },
+              { title: '授信额度用途', dataIndex: 'creditPurpose', key: 'creditPurpose', width: 140, render: editableText('creditPurpose', updateAgreement) },
               { title: '授信额度', dataIndex: 'creditLimit', key: 'creditLimit', width: 120, render: editableNum('creditLimit', updateAgreement) },
               { title: '已用额度', dataIndex: 'usedAmount', key: 'usedAmount', width: 120, render: editableNum('usedAmount', updateAgreement) },
             ]}
@@ -274,4 +282,3 @@ const CreditDetailTab: React.FC<CreditDetailTabProps> = ({ report, onChange }) =
 };
 
 export default CreditDetailTab;
-
